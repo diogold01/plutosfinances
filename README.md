@@ -66,10 +66,10 @@ Diferente de soluções em nuvem que cobram assinaturas e expõem dados sensíve
 - Mecanismo anti-duplicidade inteligente para evitar lançamentos repetidos.
 - Exportação de relatórios para auditoria e análises externas.
 
-### 🔒 9. Privacidade e Segurança Máxima
-- **100% Offline e Local**: Banco de dados SQLite rápido e confiável no seu próprio computador.
-- **Proteção por PIN**: Opção de bloqueio da aplicação por senha/PIN na inicialização.
-- **Rotina de Backup Automático**: Agendamento em segundo plano e restauração simples de cópias de segurança com 1 clique.
+### 🔒 9. Privacidade e Segurança Local
+- **100% Offline e Local**: Banco de dados SQLite rápido e confiável diretamente no seu computador.
+- **Seus dados são seus**: Zero telemetria, sem necessidade de servidores externos ou conexão com a internet.
+- **Rotina de Backup**: Criação de cópias de segurança locais e restauração rápida do banco de dados com 1 clique.
 
 ---
 
