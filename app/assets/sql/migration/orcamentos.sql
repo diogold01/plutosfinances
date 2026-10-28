@@ -1,0 +1,31 @@
+INSERT INTO "orcamentos" (
+"data_criacao",
+"data_exclusao",
+"dias",
+"exibir_resumo",
+"id",
+"id_categoria",
+"id_profile",
+"id_subcategoria",
+"meta",
+"nao_somadas",
+"notify_over",
+"perc_alerta",
+"somar_sub",
+"tipo")
+SELECT
+	old.[orcamentos]."data_criacao",
+	old.[orcamentos]."data_exclusao",
+	old.[orcamentos]."dias",
+	old.[orcamentos]."exibir_resumo",
+	old.[orcamentos]."id",
+	old.[orcamentos]."idcategoria",
+	old.[orcamentos]."profile_id",
+	old.[orcamentos]."idsubcategoria",
+	old.[orcamentos]."meta",
+	old.[orcamentos]."nao_somadas",
+	old.[orcamentos]."notify_over",
+	old.[orcamentos]."perc_alerta",
+	old.[orcamentos]."somar_sub",
+	old.[orcamentos]."tipo"
+FROM old.[orcamentos];

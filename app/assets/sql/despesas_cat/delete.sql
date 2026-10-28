@@ -1,0 +1,1 @@
+DELETE FROM despesas_cat WHERE id = :id

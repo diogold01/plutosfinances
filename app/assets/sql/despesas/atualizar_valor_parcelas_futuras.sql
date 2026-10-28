@@ -1,0 +1,1 @@
+UPDATE despesas SET valor = :valor WHERE num_parcela > :num_parcela AND id_origem = :id_origem

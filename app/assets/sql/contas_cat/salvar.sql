@@ -1,0 +1,22 @@
+INSERT INTO contas_cat
+            (
+            id,
+            descricao,
+             cor,
+             padrao,
+             not_dash,
+             not_resume,
+             not_balance,
+             icon_id,
+             id_profile)
+     VALUES
+            (
+             :id,
+             :descricao,
+             :cor,
+             :padrao,
+             :not_dash,
+             :not_resume,
+             :not_balance,
+             :icon_id,
+             :id_profile)

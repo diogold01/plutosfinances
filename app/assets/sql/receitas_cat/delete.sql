@@ -1,0 +1,1 @@
+DELETE FROM receitas_cat WHERE id = :id

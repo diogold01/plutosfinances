@@ -1,0 +1,20 @@
+insert into modelos_csv
+(id,
+id_conta,
+id_cartao,
+valor_negativo_despesas,
+possui_cabecalho,
+separador,
+formato_data,
+descricao,
+observacoes)
+values
+(:id,
+:id_conta,
+:id_cartao,
+:valor_negativo_despesas,
+:possui_cabecalho,
+:separador,
+:formato_data,
+:descricao,
+:observacoes)

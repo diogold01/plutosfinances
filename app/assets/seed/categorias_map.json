@@ -1,0 +1,638 @@
+{
+  "Accomodation": {
+    "categoria": "Viagem",
+    "subcategoria": "Hospedagem",
+    "catIconId": 376,
+    "subcatIconId": 72
+  },
+  "Airport and airlines": {
+    "categoria": "Viagem",
+    "subcategoria": "Passagens aéreas",
+    "catIconId": 376,
+    "subcatIconId": 376
+  },
+  "Bookstore": {
+    "categoria": "Educação",
+    "subcategoria": "Livros",
+    "catIconId": 64,
+    "subcatIconId": 311
+  },
+  "Clothing": {
+    "categoria": "Vestuário",
+    "subcategoria": "Roupas",
+    "catIconId": 86,
+    "subcatIconId": 86
+  },
+  "Credit card fees": {
+    "categoria": "Financeiro",
+    "subcategoria": "Taxas bancárias",
+    "catIconId": 276,
+    "subcatIconId": 272
+  },
+  "Digital services": {
+    "categoria": "Serviços",
+    "subcategoria": "Serviços digitais",
+    "catIconId": 791,
+    "subcatIconId": 827
+  },
+  "Eating out": {
+    "categoria": "Alimentação",
+    "subcategoria": "Bares e Restaurantes",
+    "catIconId": 430,
+    "subcatIconId": 439
+  },
+  "Education": {
+    "categoria": "Educação",
+    "subcategoria": "Cursos",
+    "catIconId": 64,
+    "subcatIconId": 45
+  },
+  "Electricity": {
+    "categoria": "Moradia",
+    "subcategoria": "Energia elétrica",
+    "catIconId": 471,
+    "subcatIconId": 110
+  },
+  "Electronics": {
+    "categoria": "Compras",
+    "subcategoria": "Eletrônicos",
+    "catIconId": 299,
+    "subcatIconId": 245
+  },
+  "Food delivery": {
+    "categoria": "Alimentação",
+    "subcategoria": "Delivery",
+    "catIconId": 430,
+    "subcatIconId": 398
+  },
+  "Gas stations": {
+    "categoria": "Transporte",
+    "subcategoria": "Combustível",
+    "catIconId": 391,
+    "subcatIconId": 349
+  },
+  "Groceries": {
+    "categoria": "Alimentação",
+    "subcategoria": "Mercado",
+    "catIconId": 430,
+    "subcatIconId": 258
+  },
+  "Gyms and fitness centers": {
+    "categoria": "Saúde",
+    "subcategoria": "Academia",
+    "catIconId": 87,
+    "subcatIconId": 524
+  },
+  "Healthcare": {
+    "categoria": "Saúde",
+    "subcategoria": "Cuidados médicos",
+    "catIconId": 87,
+    "subcatIconId": 693
+  },
+  "Houseware": {
+    "categoria": "Moradia",
+    "subcategoria": "Itens para casa",
+    "catIconId": 471,
+    "subcatIconId": 94
+  },
+  "Housing": {
+    "categoria": "Moradia",
+    "subcategoria": "Manutenção",
+    "catIconId": 471,
+    "subcatIconId": 787
+  },
+  "Insurance": {
+    "categoria": "Financeiro",
+    "subcategoria": "Seguros",
+    "catIconId": 276,
+    "subcatIconId": 893
+  },
+  "Kids and toys": {
+    "categoria": "Família",
+    "subcategoria": "Crianças",
+    "catIconId": 2,
+    "subcatIconId": 32
+  },
+  "Leisure": {
+    "categoria": "Lazer",
+    "subcategoria": "Outros",
+    "catIconId": 345,
+    "subcatIconId": 955
+  },
+  "Mileage programs": {
+    "categoria": "Viagem",
+    "subcategoria": "Milhas e pontos",
+    "catIconId": 376,
+    "subcatIconId": 314
+  },
+  "Office supplies": {
+    "categoria": "Trabalho",
+    "subcategoria": "Material de escritório",
+    "catIconId": 257,
+    "subcatIconId": 503
+  },
+  "Parking": {
+    "categoria": "Transporte",
+    "subcategoria": "Estacionamento",
+    "catIconId": 391,
+    "subcatIconId": 357
+  },
+  "Pharmacy": {
+    "categoria": "Saúde",
+    "subcategoria": "Farmácia",
+    "catIconId": 87,
+    "subcatIconId": 120
+  },
+  "School": {
+    "categoria": "Educação",
+    "subcategoria": "Escola",
+    "catIconId": 64,
+    "subcatIconId": 472
+  },
+  "Services": {
+    "categoria": "Serviços",
+    "subcategoria": "Outros",
+    "catIconId": 791,
+    "subcatIconId": 955
+  },
+  "Shopping": {
+    "categoria": "Compras",
+    "subcategoria": "Outros",
+    "catIconId": 299,
+    "subcatIconId": 955
+  },
+  "Sports goods": {
+    "categoria": "Lazer",
+    "subcategoria": "Artigos esportivos",
+    "catIconId": 345,
+    "subcatIconId": 511
+  },
+  "Taxi and ride-hailing": {
+    "categoria": "Transporte",
+    "subcategoria": "Táxi e aplicativo",
+    "catIconId": 391,
+    "subcatIconId": 393
+  },
+  "Telecommunications": {
+    "categoria": "Moradia",
+    "subcategoria": "Telefone e internet",
+    "catIconId": 471,
+    "subcatIconId": 170
+  },
+  "Tickets": {
+    "categoria": "Lazer",
+    "subcategoria": "Ingressos",
+    "catIconId": 345,
+    "subcatIconId": 343
+  },
+  "Transportation": {
+    "categoria": "Transporte",
+    "subcategoria": "Outros",
+    "catIconId": 391,
+    "subcatIconId": 955
+  },
+  "Public transportation": {
+    "categoria": "Transporte",
+    "subcategoria": "Outros",
+    "catIconId": 391,
+    "subcatIconId": 955
+  },
+  "Travel": {
+    "categoria": "Viagem",
+    "subcategoria": "Outros",
+    "catIconId": 376,
+    "subcatIconId": 955
+  },
+  "Wellness and fitness": {
+    "categoria": "Saúde",
+    "subcategoria": "Bem-estar",
+    "catIconId": 87,
+    "subcatIconId": 88
+  },
+  "Income": {
+    "categoria": "Renda",
+    "subcategoria": "Outros",
+    "catIconId": 261,
+    "subcatIconId": 955
+  },
+  "Salary": {
+    "categoria": "Renda",
+    "subcategoria": "Salário",
+    "catIconId": 261,
+    "subcatIconId": 276
+  },
+  "Retirement": {
+    "categoria": "Renda",
+    "subcategoria": "Aposentadoria",
+    "catIconId": 261,
+    "subcatIconId": 309
+  },
+  "Entrepreneurial activities": {
+    "categoria": "Renda",
+    "subcategoria": "Atividades de empreendedorismo",
+    "catIconId": 261,
+    "subcatIconId": 256
+  },
+  "Government aid": {
+    "categoria": "Renda",
+    "subcategoria": "Auxílio do governo",
+    "catIconId": 261,
+    "subcatIconId": 23
+  },
+  "Non-recurring income": {
+    "categoria": "Renda",
+    "subcategoria": "Renda não-recorrente",
+    "catIconId": 261,
+    "subcatIconId": 260
+  },
+  "Loans and financing": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Outros",
+    "catIconId": 272,
+    "subcatIconId": 955
+  },
+  "Late payment and overdraft costs": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Atrasos e juros",
+    "catIconId": 272,
+    "subcatIconId": 272
+  },
+  "Interests charged": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Atrasos e juros",
+    "catIconId": 272,
+    "subcatIconId": 272
+  },
+  "Financing": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Financiamento",
+    "catIconId": 272,
+    "subcatIconId": 728
+  },
+  "Real estate financing": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Financiamento",
+    "catIconId": 272,
+    "subcatIconId": 728
+  },
+  "Vehicle financing": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Financiamento de veículos",
+    "catIconId": 272,
+    "subcatIconId": 391
+  },
+  "Student loan": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Empréstimos",
+    "catIconId": 272,
+    "subcatIconId": 270
+  },
+  "Loans": {
+    "categoria": "Empréstimos e financiamento",
+    "subcategoria": "Empréstimos",
+    "catIconId": 272,
+    "subcatIconId": 270
+  },
+  "Investments": {
+    "categoria": "Investimentos",
+    "subcategoria": "Outros",
+    "catIconId": 267,
+    "subcatIconId": 955
+  },
+  "Automatic investment": {
+    "categoria": "Investimentos",
+    "subcategoria": "Investimento automático",
+    "catIconId": 267,
+    "subcatIconId": 962
+  },
+  "Fixed income": {
+    "categoria": "Investimentos",
+    "subcategoria": "Renda fixa",
+    "catIconId": 267,
+    "subcatIconId": 296
+  },
+  "Mutual funds": {
+    "categoria": "Investimentos",
+    "subcategoria": "Renda variável",
+    "catIconId": 267,
+    "subcatIconId": 275
+  },
+  "Variable income": {
+    "categoria": "Investimentos",
+    "subcategoria": "Renda variável",
+    "catIconId": 267,
+    "subcatIconId": 275
+  },
+  "Margin": {
+    "categoria": "Investimentos",
+    "subcategoria": "Ajuste de margem",
+    "catIconId": 267,
+    "subcatIconId": 972
+  },
+  "Proceeds interests and dividends": {
+    "categoria": "Investimentos",
+    "subcategoria": "Juros e dividendos",
+    "catIconId": 267,
+    "subcatIconId": 283
+  },
+  "Pension": {
+    "categoria": "Investimentos",
+    "subcategoria": "Pensão",
+    "catIconId": 267,
+    "subcatIconId": 295
+  },
+  "Internet": {
+    "categoria": "Moradia",
+    "subcategoria": "Internet",
+    "catIconId": 471,
+    "subcatIconId": 249
+  },
+  "Mobile": {
+    "categoria": "Moradia",
+    "subcategoria": "Celular",
+    "catIconId": 471,
+    "subcatIconId": 201
+  },
+  "TV": {
+    "categoria": "Moradia",
+    "subcategoria": "TV",
+    "catIconId": 471,
+    "subcatIconId": 238
+  },
+  "Online Courses": {
+    "categoria": "Educação",
+    "subcategoria": "Cursos online",
+    "catIconId": 64,
+    "subcatIconId": 64
+  },
+  "University": {
+    "categoria": "Educação",
+    "subcategoria": "Universidade",
+    "catIconId": 64,
+    "subcatIconId": 64
+  },
+  "Kindergarten": {
+    "categoria": "Educação",
+    "subcategoria": "Creche",
+    "catIconId": 64,
+    "subcatIconId": 28
+  },
+  "Sports practice": {
+    "categoria": "Saúde",
+    "subcategoria": "Prática de esportes",
+    "catIconId": 87,
+    "subcatIconId": 522
+  },
+  "Wellness": {
+    "categoria": "Saúde",
+    "subcategoria": "Bem-estar",
+    "catIconId": 87,
+    "subcatIconId": 26
+  },
+  "Stadiums and arenas": {
+    "categoria": "Lazer",
+    "subcategoria": "Estádios e arenas",
+    "catIconId": 345,
+    "subcatIconId": 531
+  },
+  "Landmarks and museums": {
+    "categoria": "Lazer",
+    "subcategoria": "Museus e pontos turísticos",
+    "catIconId": 345,
+    "subcatIconId": 459
+  },
+  "Cinema, theater and concerts": {
+    "categoria": "Lazer",
+    "subcategoria": "Cinema, Teatro e Concertos",
+    "catIconId": 345,
+    "subcatIconId": 584
+  },
+  "Online shopping": {
+    "categoria": "Compras",
+    "subcategoria": "Compras online",
+    "catIconId": 299,
+    "subcatIconId": 828
+  },
+  "Pet supplies and vet": {
+    "categoria": "Compras",
+    "subcategoria": "Pet",
+    "catIconId": 299,
+    "subcatIconId": 610
+  },
+  "Cashback": {
+    "categoria": "Compras",
+    "subcategoria": "Cashback",
+    "catIconId": 299,
+    "subcatIconId": 971
+  },
+  "Gaming": {
+    "categoria": "Serviços",
+    "subcategoria": "Jogos e videogames",
+    "catIconId": 791,
+    "subcatIconId": 326
+  },
+  "Video streaming": {
+    "categoria": "Serviços",
+    "subcategoria": "Streaming",
+    "catIconId": 791,
+    "subcatIconId": 594
+  },
+  "Music streaming": {
+    "categoria": "Serviços",
+    "subcategoria": "Streaming",
+    "catIconId": 791,
+    "subcatIconId": 594
+  },
+  "Food and drinks": {
+    "categoria": "Alimentação",
+    "subcategoria": "Bares e Restaurantes",
+    "catIconId": 430,
+    "subcatIconId": 439
+  },
+  "Bus tickets": {
+    "categoria": "Viagem",
+    "subcategoria": "Passagem de ônibus",
+    "catIconId": 376,
+    "subcatIconId": 381
+  },
+  "Donations": {
+    "categoria": "Doações",
+    "subcategoria": "Outros",
+    "catIconId": 26,
+    "subcatIconId": 955
+  },
+  "Gambling": {
+    "categoria": "Apostas",
+    "subcategoria": "Outros",
+    "catIconId": 625,
+    "subcatIconId": 955
+  },
+  "Lottery": {
+    "categoria": "Apostas",
+    "subcategoria": "Loteria",
+    "catIconId": 625,
+    "subcatIconId": 625
+  },
+  "Online bet": {
+    "categoria": "Apostas",
+    "subcategoria": "Apostas online",
+    "catIconId": 625,
+    "subcatIconId": 828
+  },
+  "Taxes": {
+    "categoria": "Impostos",
+    "subcategoria": "Outros",
+    "catIconId": 600,
+    "subcatIconId": 955
+  },
+  "Income taxes": {
+    "categoria": "Impostos",
+    "subcategoria": "Imposto de renda",
+    "catIconId": 600,
+    "subcatIconId": 610
+  },
+  "Taxes on investments": {
+    "categoria": "Impostos",
+    "subcategoria": "Imposto sobre investimentos",
+    "catIconId": 600,
+    "subcatIconId": 272
+  },
+  "Tax on financial operations": {
+    "categoria": "Impostos",
+    "subcategoria": "IOF",
+    "catIconId": 600,
+    "subcatIconId": 272
+  },
+  "Bank fees": {
+    "categoria": "Taxas bancárias",
+    "subcategoria": "Outros",
+    "catIconId": 272,
+    "subcatIconId": 955
+  },
+  "Account fees": {
+    "categoria": "Taxas bancárias",
+    "subcategoria": "Outros",
+    "catIconId": 272,
+    "subcatIconId": 955
+  },
+  "Wire transfer fees and ATM fees": {
+    "categoria": "Taxas bancárias",
+    "subcategoria": "Outros",
+    "catIconId": 272,
+    "subcatIconId": 955
+  },
+  "Rent": {
+    "categoria": "Moradia",
+    "subcategoria": "Aluguel",
+    "catIconId": 471,
+    "subcatIconId": 295
+  },
+  "Utilities": {
+    "categoria": "Moradia",
+    "subcategoria": "Utilidades",
+    "catIconId": 471,
+    "subcatIconId": 761
+  },
+  "Water": {
+    "categoria": "Moradia",
+    "subcategoria": "Água",
+    "catIconId": 471,
+    "subcatIconId": 82
+  },
+  "Gas": {
+    "categoria": "Moradia",
+    "subcategoria": "Gás",
+    "catIconId": 471,
+    "subcatIconId": 707
+  },
+  "Urban land and building tax": {
+    "categoria": "Moradia",
+    "subcategoria": "Impostos sobre moradia",
+    "catIconId": 471,
+    "subcatIconId": 295
+  },
+  "Dentist": {
+    "categoria": "Saúde",
+    "subcategoria": "Dentista",
+    "catIconId": 87,
+    "subcatIconId": 139
+  },
+  "Optometry": {
+    "categoria": "Saúde",
+    "subcategoria": "Ótica",
+    "catIconId": 87,
+    "subcatIconId": 84
+  },
+  "Hospital clinics and labs": {
+    "categoria": "Saúde",
+    "subcategoria": "Hospitais e clínicas",
+    "catIconId": 87,
+    "subcatIconId": 468
+  },
+  "Car rental": {
+    "categoria": "Transporte",
+    "subcategoria": "Aluguel de veículos",
+    "catIconId": 391,
+    "subcatIconId": 387
+  },
+  "Bicycle": {
+    "categoria": "Transporte",
+    "subcategoria": "Aluguel de bicicletas",
+    "catIconId": 391,
+    "subcatIconId": 522
+  },
+  "Automotive": {
+    "categoria": "Transporte",
+    "subcategoria": "Serviços automotivos",
+    "catIconId": 391,
+    "subcatIconId": 394
+  },
+  "Tolls and in vehicle payment": {
+    "categoria": "Transporte",
+    "subcategoria": "Pedágios",
+    "catIconId": 391,
+    "subcatIconId": 358
+  },
+  "Vehicle ownership taxes and fees": {
+    "categoria": "Transporte",
+    "subcategoria": "Taxas e impostos",
+    "catIconId": 391,
+    "subcatIconId": 252
+  },
+  "Vehicle maintenance": {
+    "categoria": "Transporte",
+    "subcategoria": "Manutenção de veículos",
+    "catIconId": 391,
+    "subcatIconId": 347
+  },
+  "Traffic tickets": {
+    "categoria": "Transporte",
+    "subcategoria": "Multas de trânsito",
+    "catIconId": 391,
+    "subcatIconId": 252
+  },
+  "Life insurance": {
+    "categoria": "Financeiro",
+    "subcategoria": "Seguro de vida",
+    "catIconId": 276,
+    "subcatIconId": 5
+  },
+  "Home insurance": {
+    "categoria": "Financeiro",
+    "subcategoria": "Seguro residencial",
+    "catIconId": 276,
+    "subcatIconId": 100
+  },
+  "Health insurance": {
+    "categoria": "Financeiro",
+    "subcategoria": "Seguro saúde",
+    "catIconId": 276,
+    "subcatIconId": 26
+  },
+  "Vehicle insurance": {
+    "categoria": "Financeiro",
+    "subcategoria": "Seguro de veículos",
+    "catIconId": 276,
+    "subcatIconId": 297
+  }
+}

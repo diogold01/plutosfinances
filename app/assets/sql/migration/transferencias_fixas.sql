@@ -1,0 +1,29 @@
+INSERT INTO "transferencias_fixas" (
+"attach_id",
+"attach_path",
+"contabilizada",
+"data",
+"dia_venc",
+"excluido_mes",
+"id",
+"id_conta_destino",
+"id_conta_origem",
+"id_desp_encargos",
+"id_transferencia",
+"obs",
+"valor")
+SELECT
+    old.[transf_fixa]."drive_id_photo",
+    old.[transf_fixa]."path_photo",
+	old.[transf_fixa]."contabilizada",
+	old.[transf_fixa]."data",
+	old.[transf_fixa]."dia_venc",
+	old.[transf_fixa]."excluido_mes",
+	old.[transf_fixa]."id",
+	old.[transf_fixa]."idganhopara",
+	old.[transf_fixa]."idganhode",
+	old.[transf_fixa]."id_desp_encargos",
+	old.[transf_fixa]."idtransf",
+	old.[transf_fixa]."obs",
+	old.[transf_fixa]."valor"
+FROM old.[transf_fixa];

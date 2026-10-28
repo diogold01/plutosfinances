@@ -1,0 +1,31 @@
+INSERT INTO "filtros" (
+"apenas_debito",
+"data_fim",
+"data_inicio",
+"descricao",
+"hashtag",
+"id",
+"id_profile",
+"obs",
+"order_index",
+"recorrencia",
+"status",
+"temp",
+"tipo",
+"tipo_data")
+SELECT
+	old.[filtros]."apenas_debito",
+	old.[filtros]."data_fim",
+	old.[filtros]."data_inicio",
+	old.[filtros]."descricao",
+	old.[filtros]."hashtag",
+	old.[filtros]."id",
+	old.[filtros]."profile_id",
+	old.[filtros]."obs",
+	old.[filtros]."order_index",
+	old.[filtros]."recorrencia",
+	old.[filtros]."status",
+	old.[filtros]."temp",
+	old.[filtros]."tipo",
+	old.[filtros]."tipo_data"
+FROM old.[filtros];

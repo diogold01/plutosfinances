@@ -1,0 +1,33 @@
+INSERT INTO "despesas_fixas" (
+"attach_id",
+"attach_path",
+"contabilizar",
+"data",
+"data_efetivacao",
+"dia_venc",
+"excluido_mes",
+"id",
+"id_cartao_credito",
+"id_conta",
+"id_despesa",
+"juros",
+"obs",
+"status",
+"valor")
+SELECT
+    old.[gsf]."drive_id_photo",
+	old.[gsf]."path_photo",
+	old.[gsf]."contabilizar",
+	old.[gsf]."data",
+	COALESCE(old.[gsf]."data_efetivacao", old.[gsf]."data_pagamento"),
+	old.[gsf]."dia_venc",
+	old.[gsf]."excluido_mes",
+	old.[gsf]."id",
+	old.[gsf]."id_cartao_credito",
+	old.[gsf]."idganhodescontar",
+	old.[gsf]."idgasto",
+	old.[gsf]."juros",
+	old.[gsf]."obs",
+	old.[gsf]."status",
+	old.[gsf]."valor"
+FROM old.[gsf];

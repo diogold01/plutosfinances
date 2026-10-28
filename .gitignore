@@ -1,0 +1,44 @@
+# Executáveis e compilação
+dist/
+build/
+*.exe
+*.spec
+installer/MinhasFinancas*
+
+# Python / Bytecode / Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.pytest_cache/
+
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+env/
+
+# Configurações e Variáveis de Ambiente
+.env
+.env.*
+!.env.example
+
+# Bancos de dados locais e arquivos de dados do usuário
+*.db
+*.sqlite
+*.sqlite3
+dados_usuario/*.sqlite
+dados_usuario/backups/
+
+# Backups locais de desenvolvimento
+backup_etapas/
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.bak
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,22 @@
+insert into membros
+(
+id,
+nome,
+data_nascimento,
+parentesco,
+id_perfil,
+id_dispositivo,
+url_foto,
+foto_doc_id,
+arquivado)
+values
+(
+:id,
+:nome,
+:data_nascimento,
+:parentesco,
+:id_perfil,
+:id_dispositivo,
+:url_foto,
+:foto_doc_id,
+:arquivado)

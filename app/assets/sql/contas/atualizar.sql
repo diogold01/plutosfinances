@@ -1,0 +1,20 @@
+update contas set
+descricao = :descricao,
+somar_total = :somar_total,
+padrao = :padrao,
+id_categoria = :id_categoria,
+id_conta_pai = :id_conta_pai,
+conta_pai = :conta_pai,
+exibir_resumo = :exibir_resumo,
+investimento = :investimento,
+somar_todas_contas_agrupadas = :somar_todas_contas_agrupadas,
+padrao_importacao = :padrao_importacao,
+dados_adicionais = :dados_adicionais,
+image_id = :image_id,
+image_url = :image_url,
+number = :number,
+subtype = :subtype,
+id_open_finance_account = :id_open_finance_account,
+id_item = :id_item,
+pendente_primeira_reconciliacao_saldo_tempo_real = :pendente_primeira_reconciliacao_saldo_tempo_real
+where id = :id

@@ -1,0 +1,1 @@
+DELETE FROM contas_cat WHERE id = :id

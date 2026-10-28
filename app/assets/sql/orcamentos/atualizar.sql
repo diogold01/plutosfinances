@@ -1,0 +1,17 @@
+UPDATE orcamentos SET
+descricao = :descricao,
+data_criacao = :data_criacao,
+data_inicial = :data_inicial,
+data_final = :data_final,
+operacao_filtro = :operacao_filtro,
+tipo_logica_tags = :tipo_logica_tags,
+cor = :cor,
+icon_id = :icon_id,
+notify_over = :notify_over,
+exibir_resumo = :exibir_resumo,
+nao_somadas = :nao_somadas,
+perc_alerta = :perc_alerta,
+saldo_previsto = :saldo_previsto,
+perc_receitas = :perc_receitas,
+id_orcamento_receita_referencia = :id_orcamento_receita_referencia,
+somar = :somar

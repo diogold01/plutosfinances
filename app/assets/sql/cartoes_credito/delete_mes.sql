@@ -1,0 +1,1 @@
+delete from cartoes_credito_mes where id_cartao = :id_cartao and mes = :mes and ano = :ano

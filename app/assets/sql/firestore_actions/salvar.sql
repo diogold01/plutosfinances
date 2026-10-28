@@ -1,0 +1,26 @@
+INSERT INTO actions
+    (action_id,
+    user_id,
+    device_id,
+    context,
+    action,
+    date,
+    metadados,
+    retry_count,
+    next_retry_time,
+    status,
+    origin,
+    descartavel)
+VALUES
+    (:action_id,
+    '',
+    :device_id,
+    :context,
+    :action,
+    :date,
+    :metadados,
+    :retry_count,
+    :next_retry_time,
+    :status,
+    :origin,
+    :descartavel);
