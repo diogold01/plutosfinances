@@ -13,7 +13,7 @@
 <br/>
 
 <p align="center">
-  <img src="referencias/Screenshot_1.png" alt="Plutos Dashboard Preview" width="850px" style="border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);" />
+  <img src="referencias/ref-plutos/dashboard.png" alt="Plutos Dashboard Preview" width="900px" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.25);" />
 </p>
 
 </div>
@@ -73,28 +73,54 @@ Diferente de soluções em nuvem que cobram assinaturas e expõem dados sensíve
 
 ---
 
-## 🖼️ Demonstração Visual
+## 🖼️ Demonstração Visual das Telas
 
 <div align="center">
   <table>
     <tr>
       <td width="50%">
-        <img src="referencias/Screenshot_2.png" alt="Tela de Lançamentos e Transações" />
-        <p align="center"><b>Lançamentos e Gestão de Transações</b></p>
+        <img src="referencias/ref-plutos/transacoes.png" alt="Transações e Lançamentos" />
+        <p align="center"><b>Lançamentos e Transações</b></p>
       </td>
       <td width="50%">
-        <img src="referencias/Screenshot_3.png" alt="Gestão de Cartões de Crédito" />
+        <img src="referencias/ref-plutos/cartoes.png" alt="Cartões de Crédito" />
         <p align="center"><b>Cartões de Crédito e Faturas</b></p>
       </td>
     </tr>
     <tr>
       <td width="50%">
-        <img src="referencias/Screenshot_4.png" alt="Orçamentos e Metas" />
-        <p align="center"><b>Planejamento de Orçamentos</b></p>
+        <img src="referencias/ref-plutos/contas.png" alt="Contas Bancárias" />
+        <p align="center"><b>Gestão de Contas e Bancos</b></p>
       </td>
       <td width="50%">
-        <img src="referencias/Screenshot_5.png" alt="Relatórios e Análises" />
-        <p align="center"><b>Relatórios e Gráficos Analíticos</b></p>
+        <img src="referencias/ref-plutos/orcamentos.png" alt="Planejamento de Orçamentos" />
+        <p align="center"><b>Orçamentos por Categoria</b></p>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%">
+        <img src="referencias/ref-plutos/Objetivos.png" alt="Metas e Objetivos" />
+        <p align="center"><b>Objetivos e Metas Financeiras</b></p>
+      </td>
+      <td width="50%">
+        <img src="referencias/ref-plutos/Categorias.png" alt="Categorias e Subcategorias" />
+        <p align="center"><b>Categorias e Subcategorias</b></p>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%">
+        <img src="referencias/ref-plutos/Graficos.png" alt="Gráficos Analíticos" />
+        <p align="center"><b>Gráficos e Estatísticas</b></p>
+      </td>
+      <td width="50%">
+        <img src="referencias/ref-plutos/relatorios.png" alt="Relatórios Financeiros" />
+        <p align="center"><b>Relatórios e Fluxo de Caixa</b></p>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="2" align="center">
+        <img src="referencias/ref-plutos/calendario.png" alt="Calendário Financeiro" width="75%" />
+        <p align="center"><b>Visão em Calendário de Vencimentos</b></p>
       </td>
     </tr>
   </table>
@@ -122,9 +148,11 @@ Minhas Finanças/
 │   │   └── views/              # Telas da aplicação (Dashboard, Cartões, Contas, etc.)
 │   ├── main.py                 # Ponto de entrada da aplicação
 │   └── version.py              # Versão oficial centralizada do sistema
-├── dados_usuario/              # Diretório local de dados (ignorado pelo Git)
-├── installer/                  # Scripts de compilação Inno Setup (.iss)
-├── referencias/                # Especificações visuais e capturas de tela
+├── docs/                       # Documentação técnica e regras de compilação
+│   └── rules/                  # Regras de versionamento e build
+├── installer/                  # Script oficial do instalador Windows Inno Setup
+├── referencias/                # Material visual e referências de design
+│   └── ref-plutos/             # Capturas de tela oficiais da aplicação
 ├── scripts/                    # Scripts utilitários de geração de assets e demos
 ├── tests/                      # Suíte de testes automatizados unitários e de integração
 └── build_executable_and_installer.ps1 # Script de automação de build e release

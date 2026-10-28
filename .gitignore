@@ -42,3 +42,4 @@ backup_etapas/
 .vscode/
 .idea/
 *.swp
+.gemini/
