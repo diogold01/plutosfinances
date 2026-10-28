@@ -40,7 +40,7 @@ class CategoryItemDialog(QDialog):
         self,
         title: str,
         initial_name: str = "",
-        initial_color: str = "#2196F3",
+        initial_color: str = "#E5603D",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -102,7 +102,7 @@ class CategoryItemDialog(QDialog):
             QMessageBox.warning(self, "Campo Obrigatório", "Informe o nome.")
             return
         self.selected_name = name
-        self.selected_color = str(self.cb_color.currentData() or "#2196F3")
+        self.selected_color = str(self.cb_color.currentData() or "#E5603D")
         self.accept()
 
 
@@ -327,7 +327,7 @@ class CategoriasView(QWidget):
             if meta.get("node_type") == "category"
             else meta.get("id_categoria")
         )
-        default_col = meta.get("color_hex", "#2196F3")
+        default_col = meta.get("color_hex", "#E5603D")
         dlg = CategoryItemDialog(
             f"Nova Subcategoria ({kind.title()})",
             initial_color=default_col,
@@ -357,7 +357,7 @@ class CategoriasView(QWidget):
         dlg = CategoryItemDialog(
             f"Editar {meta.get('nome', '')}",
             initial_name=meta.get("nome", ""),
-            initial_color=meta.get("color_hex", "#2196F3"),
+            initial_color=meta.get("color_hex", "#E5603D"),
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:

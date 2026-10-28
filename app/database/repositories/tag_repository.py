@@ -42,9 +42,10 @@ class TagRepository:
         params: list[object] = [str(profile_id)]
         if not include_archived:
             clauses.append("COALESCE(t.arquivada, 'N') != 'S'")
-        if search_text.strip():
+        clean_search = search_text.strip().lstrip("#").lower()
+        if clean_search:
             clauses.append("LOWER(t.nome) LIKE ?")
-            params.append(f"%{search_text.strip().lower()}%")
+            params.append(f"%{clean_search}%")
 
         where_sql = " AND ".join(clauses)
         rows = self.db.execute_query(
@@ -79,7 +80,7 @@ class TagRepository:
     def create_tag(
         self,
         nome: str,
-        color_hex: str = "#2196F3",
+        color_hex: str = "#E5603D",
         profile_id: str = "1",
     ) -> TagDTO:
         clean_name = nome.strip().lstrip("#")
@@ -123,7 +124,15 @@ class TagRepository:
             (clean_name, color_int, arquivada, str(tag_id)),
         )
 
-    def delete_tag(self, tag_id: str) -> None:
+    def set_archived(self, tag_id: str, archived: bool = True) -> None:
+        """Marca uma tag como arquivada ('S') ou ativa ('N')."""
+        status = "S" if archived else "N"
+        self.db.execute_write(
+            "UPDATE tags SET arquivada = ? WHERE id = ?",
+            (status, str(tag_id)),
+        )
+
+    def delete_tag(self, tag_id: str, soft: bool = False) -> None:
         with self.db.transaction() as cur:
             cur.execute("DELETE FROM tags_transacoes WHERE id_tag = ?", (str(tag_id),))
             cur.execute("DELETE FROM orcamentos_tags WHERE id_tag = ?", (str(tag_id),))

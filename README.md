@@ -214,11 +214,11 @@ Para compilar o aplicativo em um executável autônomo (`.exe`) e gerar o instal
    ```
 2. Execute o script de automação oficial:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .\build_executable_and_installer.ps1 -Version "1.3.6"
+   powershell -ExecutionPolicy Bypass -File .\build_executable_and_installer.ps1 -Version "1.1.1"
    ```
 3. Os binários gerados serão salvos em:
    - `dist/Plutos/Plutos.exe` (Executável standalone)
-   - `dist/Instalador/Plutos_Setup_1.3.6.exe` (Instalador com assistente)
+   - `dist/Instalador/Plutos_Setup_1.1.1.exe` (Instalador com assistente)
 
 ---
 

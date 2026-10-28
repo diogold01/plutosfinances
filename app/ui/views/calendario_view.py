@@ -136,7 +136,8 @@ class CalendarioView(QWidget):
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(3, 120)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -215,6 +216,7 @@ class CalendarioView(QWidget):
             self.calendar.setDateTextFormat(qd, fmt)
 
         cur_qd = self.calendar.selectedDate()
+        self.calendar.setCurrentPage(year, month)
         if cur_qd.year() != year or cur_qd.month() != month:
             target_day = next(iter(self._daily_map.keys()), 1)
             self.calendar.setSelectedDate(QDate(year, month, target_day))
@@ -272,7 +274,7 @@ class CalendarioView(QWidget):
             badge = Badge(occ.status_label, variant=st_var)
             c_w = QWidget()
             c_lay = QHBoxLayout(c_w)
-            c_lay.setContentsMargins(4, 4, 4, 4)
+            c_lay.setContentsMargins(0, 0, 0, 0)
             c_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             c_lay.addWidget(badge)
             self.table.setCellWidget(idx, 3, c_w)

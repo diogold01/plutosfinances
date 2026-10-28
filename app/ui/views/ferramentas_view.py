@@ -685,7 +685,8 @@ class FerramentasView(QWidget):
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.tbl_loans.setColumnWidth(3, 110)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_loans.setSelectionBehavior(
@@ -897,7 +898,7 @@ class FerramentasView(QWidget):
             badge = Badge(st_lbl, variant=st_var)
             c_w = QWidget()
             c_lay = QHBoxLayout(c_w)
-            c_lay.setContentsMargins(4, 4, 4, 4)
+            c_lay.setContentsMargins(0, 0, 0, 0)
             c_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             c_lay.addWidget(badge)
             self.tbl_loans.setCellWidget(idx, 3, c_w)

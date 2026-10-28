@@ -34,6 +34,7 @@ from app.config.theme_palette import (
     EXPENSE_RED,
     INCOME_GREEN,
     PRIMARY_BLUE,
+    ThemePalette,
     WARNING_ORANGE,
 )
 from app.database.connection_manager import ConnectionManager
@@ -301,7 +302,8 @@ class OrcamentosView(QWidget):
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(7, 135)
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -404,6 +406,7 @@ class OrcamentosView(QWidget):
         super().keyPressEvent(event)
 
     def refresh_data(self) -> None:
+        pal = ThemePalette.for_mode(self.db.settings.theme_mode)
         profile_id, month, year, search_text = self.get_context()
         all_b = self.budget_service.list_budgets_progress(
             year,
@@ -471,23 +474,33 @@ class OrcamentosView(QWidget):
                     it.setFont(f_bold)
                 self.table.setItem(idx, col_i, it)
 
-            # Barra de progresso fina e moderna
+            # Barra de progresso padronizada de 8px em pílula (Redesign Plutos)
+            prog_container = QWidget()
+            prog_lay = QHBoxLayout(prog_container)
+            prog_lay.setContentsMargins(6, 4, 6, 4)
+            prog_lay.setSpacing(8)
+
             bar = QProgressBar()
             bar.setRange(0, 100)
             val_pct = min(100, int(round(b.percentual)))
             bar.setValue(val_pct)
-            bar.setTextVisible(True)
-            bar.setFormat(f"{b.percentual:.1f}%")
+            bar.setTextVisible(False)
+            bar.setFixedHeight(8)
             bar_color = (
                 EXPENSE_RED
                 if b.percentual > 100.0
                 else (WARNING_ORANGE if b.percentual >= b.perc_alerta else INCOME_GREEN)
             )
             bar.setStyleSheet(
-                f"QProgressBar {{ background-color: rgba(123, 129, 144, 0.15); border: none; border-radius: 4px; text-align: center; height: 16px; font-size: 11px; font-weight: 600; }}"
-                f"QProgressBar::chunk {{ background-color: {bar_color}; border-radius: 4px; }}"
+                f"QProgressBar {{ background-color: rgba(123, 129, 144, 0.15); border: none; border-radius: 99px; }}"
+                f"QProgressBar::chunk {{ background-color: {bar_color}; border-radius: 99px; }}"
             )
-            self.table.setCellWidget(idx, 6, bar)
+            lbl_pct = QLabel(f"{b.percentual:.1f}%")
+            lbl_pct.setFixedWidth(46)
+            lbl_pct.setStyleSheet(f"color: {pal.text_secondary}; font-size: 11px; font-weight: 600;")
+            prog_lay.addWidget(bar, 1)
+            prog_lay.addWidget(lbl_pct)
+            self.table.setCellWidget(idx, 6, prog_container)
 
             # Situação em Badge pill
             variant = (
@@ -498,13 +511,14 @@ class OrcamentosView(QWidget):
             badge = Badge(b.status_label, variant=variant)
             b_wrap = QWidget()
             b_lay = QHBoxLayout(b_wrap)
-            b_lay.setContentsMargins(4, 2, 4, 2)
+            b_lay.setContentsMargins(0, 0, 0, 0)
             b_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             b_lay.addWidget(badge)
             self.table.setCellWidget(idx, 7, b_wrap)
 
-            # Seta item invisível para facilitar ordenação/busca textual
+            # Seta item com cor 100% transparente para ordenação/busca textual sem fantasma visual
             it_st = QTableWidgetItem(b.status_label)
+            it_st.setForeground(QColor(0, 0, 0, 0))
             it_st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(idx, 7, it_st)
 
