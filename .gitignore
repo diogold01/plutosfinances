@@ -27,6 +27,8 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+!app/assets/seed/*.db
+!app/assets/seed/*.sqlite
 dados_usuario/*.sqlite
 dados_usuario/backups/
 dados_usuario/app_settings.json
