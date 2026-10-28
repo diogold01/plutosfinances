@@ -230,5 +230,5 @@ Para compilar o aplicativo em um executável autônomo (`.exe`) e gerar o instal
 ---
 
 <div align="center">
-  <b>Plutos</b> — Inteligência e controle total para a sua vida financeira.
+  <b>Plutos</b>
 </div>
