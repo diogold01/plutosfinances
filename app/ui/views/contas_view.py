@@ -476,7 +476,7 @@ class ContasView(QWidget):
         card = QFrame()
         card.setObjectName("KpiCard")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setContentsMargins(18, 16, 18, 16)
         lay.setSpacing(4)
         lbl_t = QLabel(title.upper())
         lbl_t.setObjectName("MutedText")

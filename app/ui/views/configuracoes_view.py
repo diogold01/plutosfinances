@@ -426,7 +426,7 @@ class ConfiguracoesView(QWidget):
             )
             c_w = QWidget()
             c_lay = QHBoxLayout(c_w)
-            c_lay.setContentsMargins(4, 4, 4, 4)
+            c_lay.setContentsMargins(0, 0, 0, 0)
             c_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             c_lay.addWidget(badge)
             self.table_profiles.setCellWidget(idx, 3, c_w)

@@ -285,7 +285,7 @@ class MainWindow(QMainWindow):
         self.btn_prev_month.clicked.connect(self.go_previous_month)
 
         self.btn_period_label = QPushButton()
-        self.btn_period_label.setObjectName("IconPillButton")
+        self.btn_period_label.setObjectName("PeriodLabelButton")
         self.btn_period_label.setToolTip("Clique para retornar ao mês atual")
         self.btn_period_label.clicked.connect(self.go_current_month)
 
@@ -569,6 +569,10 @@ class MainWindow(QMainWindow):
 
     def _refresh_header_state(self) -> None:
         pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+        # Oculta seletor mensal em telas atemporais de cadastro global
+        timeless_views = {"tags", "categorias", "configuracoes", "ferramentas"}
+        self.period_pill.setVisible(self.current_nav_key not in timeless_views)
+
         self.btn_period_label.setText(
             format_month_year(self.current_month, self.current_year)
         )

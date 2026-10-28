@@ -29,6 +29,7 @@ env/
 *.sqlite3
 dados_usuario/*.sqlite
 dados_usuario/backups/
+dados_usuario/app_settings.json
 
 # Backups locais de desenvolvimento
 backup_etapas/

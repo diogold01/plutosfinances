@@ -280,6 +280,19 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.app_background};
         color: {p.text_primary};
     }}
+    QPushButton#PeriodLabelButton {{
+        background-color: transparent;
+        border: none;
+        border-radius: 8px;
+        padding: 4px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: {p.text_primary};
+    }}
+    QPushButton#PeriodLabelButton:hover {{
+        background-color: {p.app_background};
+        color: {p.primary};
+    }}
     QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QDateEdit, QTextEdit {{
         background-color: {p.surface_card};
         color: {p.text_primary};
@@ -468,7 +481,7 @@ def build_stylesheet(palette: ThemePalette) -> str:
         border-bottom: 1px solid {p.border_subtle};
     }}
     QTableWidget::item, QTreeWidget::item, QListWidget::item {{
-        padding: 11px 14px;
+        padding: 4px 10px;
         border-bottom: 1px solid {p.border_subtle};
         color: {p.text_primary};
         font-size: 13px;
@@ -485,41 +498,46 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.app_background};
         color: {p.text_secondary};
         border-radius: 99px;
-        padding: 3px 10px;
-        font-size: 12px;
-        font-weight: 500;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 18px;
     }}
     QLabel#BadgeSuccess {{
         background-color: {p.income_badge_bg};
         color: {p.income_green};
         border-radius: 99px;
-        padding: 3px 10px;
-        font-size: 12px;
-        font-weight: 500;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 18px;
     }}
     QLabel#BadgeDanger {{
         background-color: {p.expense_badge_bg};
         color: {p.expense_red};
         border-radius: 99px;
-        padding: 3px 10px;
-        font-size: 12px;
-        font-weight: 500;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 18px;
     }}
     QLabel#BadgeWarning {{
         background-color: {p.warning_badge_bg};
         color: {p.warning_orange};
         border-radius: 99px;
-        padding: 3px 10px;
-        font-size: 12px;
-        font-weight: 500;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 18px;
     }}
     QLabel#BadgeInfo {{
         background-color: {p.transfer_badge_bg};
         color: {p.transfer_indigo};
         border-radius: 99px;
-        padding: 3px 10px;
-        font-size: 12px;
-        font-weight: 500;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 18px;
     }}
     QTabWidget::pane {{
         border: 1px solid {p.border_subtle};

@@ -41,6 +41,7 @@ from app.config.theme_palette import (
     CATEGORY_SWATCHES,
     EXPENSE_RED,
     INCOME_GREEN,
+    PRIMARY_ACCENT,
     PRIMARY_BLUE,
     WARNING_ORANGE,
 )
@@ -207,11 +208,11 @@ class CreditCardTile(QFrame):
         self.bar_limit.setRange(0, 100)
         self.bar_limit.setValue(pct_clamped)
         self.bar_limit.setTextVisible(False)
-        self.bar_limit.setFixedHeight(6)
-        bar_color = EXPENSE_RED if pct >= 85 else (WARNING_ORANGE if pct >= 65 else PRIMARY_BLUE)
+        self.bar_limit.setFixedHeight(8)
+        bar_color = EXPENSE_RED if pct >= 85 else (WARNING_ORANGE if pct >= 65 else PRIMARY_ACCENT)
         self.bar_limit.setStyleSheet(
-            f"QProgressBar {{ border: none; border-radius: 3px; background-color: rgba(123, 129, 144, 0.2); }}"
-            f"QProgressBar::chunk {{ border-radius: 3px; background-color: {bar_color}; }}"
+            f"QProgressBar {{ border: none; border-radius: 99px; background-color: rgba(123, 129, 144, 0.15); }}"
+            f"QProgressBar::chunk {{ border-radius: 99px; background-color: {bar_color}; }}"
         )
         lay.addWidget(self.bar_limit)
 
@@ -1057,12 +1058,14 @@ class CartoesView(QWidget):
         self.tbl_items.setShowGrid(False)
         self.tbl_items.verticalHeader().setVisible(False)
         self.tbl_items.verticalHeader().setDefaultSectionSize(42)
+        self.tbl_items.setMinimumHeight(220)
         ihdr = self.tbl_items.horizontalHeader()
         ihdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         ihdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         ihdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         ihdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        ihdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        ihdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        self.tbl_items.setColumnWidth(4, 120)
         ihdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         ihdr.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.tbl_items.setSelectionBehavior(
@@ -1149,14 +1152,14 @@ class CartoesView(QWidget):
         card = QFrame()
         card.setObjectName("KpiCard")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setContentsMargins(18, 16, 18, 16)
         lay.setSpacing(4)
         lbl_t = QLabel(title.upper())
         lbl_t.setObjectName("MutedText")
         lbl_t.setStyleSheet("font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
         lbl_v = QLabel("R$ 0,00")
         f = QFont()
-        f.setPointSize(15)
+        f.setPointSize(16)
         f.setBold(True)
         lbl_v.setFont(f)
         lbl_v.setStyleSheet(f"color: {accent_hex};")
@@ -1485,6 +1488,7 @@ class CartoesView(QWidget):
             st_label = "Pago" if occ.efetivada else "Em fatura"
             st_var = "success" if occ.efetivada else "warning"
             it_st = QTableWidgetItem(st_label)
+            it_st.setForeground(QColor(0, 0, 0, 0))
             it_st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_st.setData(Qt.ItemDataRole.UserRole, occ)
             self.tbl_items.setItem(row_cursor, 4, it_st)
@@ -1492,7 +1496,7 @@ class CartoesView(QWidget):
             badge = Badge(st_label, variant=st_var)
             b_wrap = QWidget()
             b_lay = QHBoxLayout(b_wrap)
-            b_lay.setContentsMargins(6, 4, 6, 4)
+            b_lay.setContentsMargins(0, 0, 0, 0)
             b_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             b_lay.addWidget(badge)
             self.tbl_items.setCellWidget(row_cursor, 4, b_wrap)

@@ -8,10 +8,13 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QStackedWidget,
@@ -21,17 +24,107 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config.theme_palette import ThemePalette
+from app.config.theme_palette import CATEGORY_SWATCH_COLORS, ThemePalette
 from app.database.connection_manager import ConnectionManager
 from app.database.repositories.tag_repository import TagDTO, TagRepository
 from app.ui.bank_icons import create_color_badge_icon
 from app.ui.components import Badge, EmptyStateWidget
 from app.ui.icons import get_line_icon
-from app.ui.views.categorias_view import CategoryItemDialog
+
+
+class TagItemDialog(QDialog):
+    """Modal dedicado para criação e edição de Tags."""
+
+    def __init__(
+        self,
+        title: str,
+        initial_name: str = "",
+        initial_color: str = "#E5603D",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(440)
+        self.selected_name = initial_name
+        self.selected_color = initial_color
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(16)
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(4)
+        lbl_head = QLabel(title)
+        lbl_head.setObjectName("SectionTitle")
+        lbl_sub = QLabel(
+            "Tags agrupam transações transversalmente (ex.: #viagem, #projeto, #reforma)."
+        )
+        lbl_sub.setObjectName("MutedText")
+        title_box.addWidget(lbl_head)
+        title_box.addWidget(lbl_sub)
+        root.addLayout(title_box)
+
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        # Campo Nome com prefixo # visual
+        name_container = QWidget()
+        name_lay = QHBoxLayout(name_container)
+        name_lay.setContentsMargins(0, 0, 0, 0)
+        name_lay.setSpacing(6)
+
+        lbl_hash = QLabel("#")
+        lbl_hash.setObjectName("MutedText")
+        lbl_hash_font = lbl_hash.font()
+        lbl_hash_font.setBold(True)
+        lbl_hash_font.setPointSize(14)
+        lbl_hash.setFont(lbl_hash_font)
+
+        self.ed_name = QLineEdit(initial_name.lstrip("#"))
+        self.ed_name.setPlaceholderText("Ex.: viagem_ferias, reforma_casa, reembolso...")
+        name_lay.addWidget(lbl_hash)
+        name_lay.addWidget(self.ed_name, stretch=1)
+        form.addRow("Nome da Tag:", name_container)
+
+        # Seletor de Cores com Terracotta como primeira opção
+        self.cb_color = QComboBox()
+        self.cb_color.setIconSize(QSize(18, 18))
+        for hex_col in CATEGORY_SWATCH_COLORS:
+            self.cb_color.addItem(
+                create_color_badge_icon(hex_col, size=16), hex_col, hex_col
+            )
+        idx = self.cb_color.findData(initial_color.upper())
+        if idx >= 0:
+            self.cb_color.setCurrentIndex(idx)
+        form.addRow("Cor de Destaque:", self.cb_color)
+        root.addLayout(form)
+
+        btns = QHBoxLayout()
+        btns.addStretch()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("SecondaryButton")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_ok = QPushButton("Salvar Tag")
+        btn_ok.setObjectName("PrimaryButton")
+        btn_ok.clicked.connect(self._on_save)
+
+        btns.addWidget(btn_cancel)
+        btns.addWidget(btn_ok)
+        root.addLayout(btns)
+
+    def _on_save(self) -> None:
+        raw_name = self.ed_name.text().strip().lstrip("#").strip()
+        if not raw_name:
+            QMessageBox.warning(self, "Campo Obrigatório", "Informe o nome da tag.")
+            return
+        self.selected_name = raw_name
+        self.selected_color = str(self.cb_color.currentData() or "#E5603D")
+        self.accept()
 
 
 class TagsView(QWidget):
-    """Vista de gerenciamento de Tags com contador de transações vinculadas."""
+    """Vista de gerenciamento de Tags com contador de transações vinculadas e exibição em Chips."""
 
     def __init__(
         self,
@@ -106,7 +199,7 @@ class TagsView(QWidget):
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(
-            ["Tag", "Cor", "Transações Vinculadas", "Situação"]
+            ["Tag", "Cor Visual", "Transações Vinculadas", "Situação"]
         )
         self.table.setShowGrid(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -114,12 +207,13 @@ class TagsView(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setIconSize(QSize(18, 18))
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(40)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(3, 120)
         self.table.itemDoubleClicked.connect(lambda _: self._on_edit_selected())
         self.stack.addWidget(self.table)
 
@@ -159,6 +253,7 @@ class TagsView(QWidget):
         self.table.setRowCount(len(self._tags))
 
         for idx, t in enumerate(self._tags):
+            # 0: Nome com hashtag estilizado
             it_name = QTableWidgetItem(
                 create_color_badge_icon(t.color_hex, "", size=14),
                 f"#{t.nome}",
@@ -168,22 +263,33 @@ class TagsView(QWidget):
             it_name.setFont(f_bold)
             self.table.setItem(idx, 0, it_name)
 
-            it_hex = QTableWidgetItem(t.color_hex)
-            it_hex.setForeground(QColor(pal.text_secondary))
-            self.table.setItem(idx, 1, it_hex)
+            # 1: Cor Visual (Pill/Badge elegante)
+            c_badge = QWidget()
+            c_badge_lay = QHBoxLayout(c_badge)
+            c_badge_lay.setContentsMargins(6, 4, 6, 4)
+            c_badge_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_pill = QLabel(f"  {t.color_hex}  ")
+            lbl_pill.setStyleSheet(
+                f"background-color: {t.color_hex}22; color: {t.color_hex}; "
+                f"border: 1px solid {t.color_hex}55; border-radius: 99px; "
+                f"padding: 2px 8px; font-weight: 600; font-size: 11px;"
+            )
+            c_badge_lay.addWidget(lbl_pill)
+            self.table.setCellWidget(idx, 1, c_badge)
 
+            # 2: Transações Vinculadas
             it_count = QTableWidgetItem(str(t.utilizacoes))
             it_count.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_count.setForeground(QColor(pal.text_secondary))
             self.table.setItem(idx, 2, it_count)
 
-            # Badge de situação
+            # 3: Badge de situação (Ativa / Arquivada)
             status_variant = "neutral" if t.arquivada == "S" else "success"
             status_label = "Arquivada" if t.arquivada == "S" else "Ativa"
             badge = Badge(status_label, variant=status_variant)
             c_w = QWidget()
             c_lay = QHBoxLayout(c_w)
-            c_lay.setContentsMargins(4, 4, 4, 4)
+            c_lay.setContentsMargins(0, 0, 0, 0)
             c_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             c_lay.addWidget(badge)
             self.table.setCellWidget(idx, 3, c_w)
@@ -196,7 +302,7 @@ class TagsView(QWidget):
 
     def _on_new_tag(self) -> None:
         profile_id, _, _, _ = self.get_context()
-        dlg = CategoryItemDialog("Nova Tag", parent=self)
+        dlg = TagItemDialog("Nova Tag", parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.tag_repo.create_tag(
                 nome=dlg.selected_name,
@@ -214,7 +320,7 @@ class TagsView(QWidget):
                 self, "Seleção", "Selecione uma tag na tabela para editar."
             )
             return
-        dlg = CategoryItemDialog(
+        dlg = TagItemDialog(
             f"Editar #{t.nome}",
             initial_name=t.nome,
             initial_color=t.color_hex,
@@ -254,7 +360,7 @@ class TagsView(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if ans == QMessageBox.StandardButton.Yes:
-            self.tag_repo.delete_tag(t.id, soft=True)
+            self.tag_repo.delete_tag(t.id)
             self.refresh_data()
             if self.on_data_mutated:
                 self.on_data_mutated()

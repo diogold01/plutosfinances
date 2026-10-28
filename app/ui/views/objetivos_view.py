@@ -504,10 +504,10 @@ class ObjetivosView(QWidget):
             bar.setRange(0, 100)
             bar.setValue(int(min(100, round(g.percentual))))
             bar.setTextVisible(False)
-            bar.setFixedHeight(6)
+            bar.setFixedHeight(8)
             bar.setStyleSheet(
-                f"QProgressBar {{ background-color: {pal.surface_header}; border: none; border-radius: 3px; }}"
-                f"QProgressBar::chunk {{ background-color: {g.color_hex}; border-radius: 3px; }}"
+                f"QProgressBar {{ background-color: rgba(123, 129, 144, 0.15); border: none; border-radius: 99px; }}"
+                f"QProgressBar::chunk {{ background-color: {g.color_hex}; border-radius: 99px; }}"
             )
 
             lbl_pct = QLabel(f"{g.percentual:.0f}%")
@@ -596,7 +596,7 @@ class ObjetivosView(QWidget):
             saldo_inicial=float(dlg.sp_inicial.value()),
             data_expectativa=date(qd.year(), qd.month(), qd.day()),
             motivacao=dlg.ed_motivacao.text().strip(),
-            color_hex=str(dlg.cb_cor.currentData() or "#1E88E5"),
+            color_hex=str(dlg.cb_cor.currentData() or "#E5603D"),
             profile_id=profile_id,
         )
         self.on_data_mutated()
@@ -617,7 +617,7 @@ class ObjetivosView(QWidget):
             saldo_inicial=float(dlg.sp_inicial.value()),
             data_expectativa=date(qd.year(), qd.month(), qd.day()),
             motivacao=dlg.ed_motivacao.text().strip(),
-            color_hex=str(dlg.cb_cor.currentData() or "#1E88E5"),
+            color_hex=str(dlg.cb_cor.currentData() or "#E5603D"),
             realizado=dlg.chk_realizado.isChecked(),
         )
         self.on_data_mutated()
