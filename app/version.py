@@ -1,5 +1,5 @@
 """Módulo centralizado de versionamento do Plutos Desktop Nativo."""
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 APP_NAME = "Plutos"
 APP_TITLE = f"{APP_NAME} v{__version__} — Controle Financeiro Pessoal"

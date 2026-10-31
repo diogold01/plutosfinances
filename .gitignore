@@ -47,3 +47,6 @@ backup_etapas/
 *.swp
 .gemini/
 GEMINI.md
+
+# Chave de API Gemini (BYOK) - nunca versionar
+dados_usuario/gemini_key.local

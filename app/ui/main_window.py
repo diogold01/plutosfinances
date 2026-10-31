@@ -47,6 +47,8 @@ from app.ui.style_manager import (
 from app.ui.views.calendario_view import CalendarioView
 from app.ui.views.cartoes_view import CartoesView
 from app.ui.views.categorias_view import CategoriasView
+from app.ui.gemini_button import GeminiButton
+from app.ui.views.configuracoes_hub_view import ConfiguracoesHubView
 from app.ui.views.configuracoes_view import ConfiguracoesView
 from app.ui.views.contas_view import ContasView
 from app.ui.views.dashboard_view import DashboardView
@@ -78,8 +80,7 @@ class MainWindow(QMainWindow):
         ("categorias", "Categorias"),
         ("tags", "Tags"),
         ("calendario", "Calendário"),
-        ("ferramentas", "Ferramentas"),
-        ("configuracoes", "Backup e perfis"),
+        ("configuracoes", "Configurações"),
     ]
 
     NAV_ICONS: Dict[str, str] = {
@@ -304,6 +305,11 @@ class MainWindow(QMainWindow):
         h_lay.addStretch()
 
         # Ações do Topbar à Direita
+        # 0. Assistente Gemini (lançamento rápido por IA), ao lado esquerdo de "+ Novo"
+        self.btn_gemini = GeminiButton()
+        self.btn_gemini.clicked.connect(self._quick_ai_entry)
+        h_lay.addWidget(self.btn_gemini)
+
         # 1. Botão Primário "+ Novo"
         self.btn_fab_add = QPushButton("Novo")
         self.btn_fab_add.setObjectName("PrimaryButton")
@@ -350,6 +356,8 @@ class MainWindow(QMainWindow):
         self.btn_refresh.clicked.connect(self.refresh_current_view)
         h_lay.addWidget(self.btn_refresh)
         QShortcut(QKeySequence("F5"), self, activated=self.refresh_current_view)
+        for seq in ("Ctrl+K", "Ctrl+J"):
+            QShortcut(QKeySequence(seq), self, activated=self._quick_ai_entry)
 
         # 5. Central de Notificações / Alertas
         self.btn_notifications = QPushButton()
@@ -480,8 +488,10 @@ class MainWindow(QMainWindow):
         self._views["categorias"] = self.categorias_view
         self._views["tags"] = self.tags_view
         self._views["calendario"] = self.calendario_view
-        self._views["ferramentas"] = self.ferramentas_view
-        self._views["configuracoes"] = self.config_view
+        self.config_hub_view = ConfiguracoesHubView(
+            self.config_view, self.ferramentas_view, self.db, parent=self
+        )
+        self._views["configuracoes"] = self.config_hub_view
 
         for item in self.NAV_ITEMS:
             key, label = item[0], item[1]
@@ -539,6 +549,9 @@ class MainWindow(QMainWindow):
         return page
 
     def navigate_to(self, key: str) -> None:
+        if key == "ferramentas":  # atalho legado: agora é uma sub-aba de Configurações
+            key = "configuracoes"
+            self.config_hub_view.select_tab("ferramentas")
         if key not in self._views:
             return
         self.current_nav_key = key
@@ -720,6 +733,10 @@ class MainWindow(QMainWindow):
         lbl_section1.setDefaultWidget(hdr1)
         menu.addAction(lbl_section1)
 
+        act_ai = QAction(get_line_icon("plus", color=pal.primary, size=16), "Lançamento rápido (IA)  Ctrl+K", self)
+        act_ai.triggered.connect(self._quick_ai_entry)
+        menu.addAction(act_ai)
+
         act_desp = QAction(get_line_icon("dn", color=pal.expense_red, size=16), "Despesa", self)
         act_desp.setShortcut(QKeySequence("D"))
         act_desp.triggered.connect(self._quick_new_expense)
@@ -770,6 +787,18 @@ class MainWindow(QMainWindow):
         # Regra de design: Backup NÃO fica nesse menu!
 
         menu.exec(self.btn_fab_add.mapToGlobal(self.btn_fab_add.rect().bottomLeft()))
+
+    def _quick_ai_entry(self) -> None:
+        """Abre o Lançamento Rápido por IA (Ctrl+K / Ctrl+J)."""
+        from app.ui.dialogs.ai_quick_entry_dialog import AIQuickEntryDialog
+
+        def _saved() -> None:
+            self._on_any_data_mutated()
+            self.refresh_current_view()
+
+        dlg = AIQuickEntryDialog(self.db, self.active_profile_id, _saved, parent=self)
+        dlg.manual_requested.connect(self._quick_new_expense)
+        dlg.exec()
 
     def _quick_new_expense(self) -> None:
         self.navigate_to("transacoes")

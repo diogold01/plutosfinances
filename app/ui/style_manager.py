@@ -293,6 +293,19 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.app_background};
         color: {p.primary};
     }}
+    QFrame#PeriodPill QPushButton#IconPillButton {{
+        padding: 0px;
+        min-width: 28px;
+        max-width: 28px;
+        min-height: 28px;
+        max-height: 28px;
+        border-radius: 14px;
+    }}
+    QFrame#PeriodPill QPushButton#PeriodLabelButton {{
+        padding: 0px 12px;
+        min-height: 28px;
+        max-height: 28px;
+    }}
     QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QDateEdit, QTextEdit {{
         background-color: {p.surface_card};
         color: {p.text_primary};
