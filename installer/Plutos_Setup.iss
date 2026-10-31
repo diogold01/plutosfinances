@@ -11,7 +11,7 @@
 #define MyAppName "Plutos - Controle Financeiro Pessoal"
 #define MyAppShortName "Plutos"
 #ifndef MyAppVersion
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.2.0"
 #endif
 #define MyAppPublisher "Plutos Financeiro Desktop Offline"
 #define MyAppExeName "Plutos.exe"

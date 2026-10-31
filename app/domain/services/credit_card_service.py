@@ -436,7 +436,13 @@ class CreditCardService:
     # ------------------------------------------------------------------ #
     # Fatura Mensal (`cartoes_credito_mes` + ocorrências de despesas)
     # ------------------------------------------------------------------ #
-    def get_invoice(self, card_id: str, year: int, month: int) -> InvoiceDTO:
+    def get_invoice(
+        self,
+        card_id: str,
+        year: int,
+        month: int,
+        ref: Optional[date] = None,
+    ) -> InvoiceDTO:
         card = self.get_card(card_id)
         if card is None:
             raise ValueError(f"Cartão '{card_id}' não encontrado.")
@@ -491,7 +497,7 @@ class CreditCardService:
         all_items_paid = bool(items) and all(o.efetivada for o in items)
         paga = fatura_paga_flag or all_items_paid or manual_status == "Paga"
 
-        today = date.today()
+        today = ref or date.today()
         if manual_status in ("Aberta", "Fechada", "Paga"):
             status = manual_status
         elif paga:
@@ -976,7 +982,7 @@ class CreditCardService:
         candidates: List[InvoiceDTO] = []
         for offset in (-1, 0, 1, 2):
             m = add_months(base, offset)
-            candidates.append(self.get_invoice(card_id, m.year, m.month))
+            candidates.append(self.get_invoice(card_id, m.year, m.month, ref=ref))
 
         for inv in candidates:
             if inv.paga:
@@ -989,7 +995,28 @@ class CreditCardService:
         for inv in candidates:
             if not inv.paga and inv.data_fechamento > ref:
                 return inv
-        return self.get_invoice(card_id, ref.year, ref.month)
+        return self.get_invoice(card_id, ref.year, ref.month, ref=ref)
+
+    def resolve_invoice_for_context(
+        self,
+        card_id: str,
+        year: int,
+        month: int,
+        ref: Optional[date] = None,
+    ) -> InvoiceDTO:
+        """
+        Resolve a fatura correspondente ao mês `(year, month)` selecionado no cabeçalho global:
+        Quando a fatura do mês corrente já fechou (`today >= data_fechamento`) e está paga
+        ou sem saldo pendente, o ciclo ativo de compras do mês já pertence à fatura do
+        mês seguinte (`+1 mês`), mantendo Transações (mês corrente) e Cartões (próxima fatura)
+        alinhados durante a navegação.
+        """
+        today = ref or date.today()
+        cur_inv = self.get_invoice(card_id, today.year, today.month, ref=today)
+        if today >= cur_inv.data_fechamento and (cur_inv.paga or cur_inv.total <= 0):
+            target = add_months(date(year, month, 1), 1)
+            return self.get_invoice(card_id, target.year, target.month, ref=today)
+        return self.get_invoice(card_id, year, month, ref=today)
 
     def preview_realign_card_expenses(self, card_id: str) -> List[Dict[str, object]]:
         """

@@ -122,9 +122,15 @@ class AppSettings:
     window_height: int = 840
     sidebar_collapsed: bool = False
     show_technical_details: bool = True
+    gemini_model: str = "gemini-3.5-flash-lite"
     _settings_path: Path = field(
         default_factory=lambda: DEFAULT_SETTINGS_FILE, repr=False, compare=False
     )
+
+    @property
+    def user_data_dir(self) -> Path:
+        """Pasta onde vivem `app_settings.json` e arquivos locais (ex.: chave Gemini)."""
+        return self._settings_path.parent
 
     @classmethod
     def load(cls, settings_path: Optional[Path | str] = None) -> "AppSettings":

@@ -823,6 +823,7 @@ class CartoesView(QWidget):
 
         self._invoices: List[InvoiceDTO] = []
         self._selected_invoice: Optional[InvoiceDTO] = None
+        self._last_context_period: Optional[Tuple[int, int]] = None
         self.card_tiles: List[CreditCardTile] = []
         self._expanded_occ_id: Optional[str] = None
         self._filtered_items: List[Occurrence] = []
@@ -1212,6 +1213,9 @@ class CartoesView(QWidget):
 
     def refresh_data(self) -> None:
         profile_id, month, year, search_text = self.get_context()
+        period_changed = self._last_context_period != (year, month)
+        self._last_context_period = (year, month)
+
         prev_card_id = (
             self._selected_invoice.card.id if self._selected_invoice else None
         )
@@ -1226,9 +1230,11 @@ class CartoesView(QWidget):
             q = search_text.strip().lower()
             cards = [c for c in cards if q in c.nome.lower()]
 
-        # Faturas do mês de competência selecionado no cabeçalho global
+        # Faturas vinculadas ao período do cabeçalho global (avança automaticamente
+        # para a fatura aberta do próximo mês quando o ciclo do mês corrente já fechou)
         self._invoices = [
-            self.card_service.get_invoice(c.id, year, month) for c in cards
+            self.card_service.resolve_invoice_for_context(c.id, year, month)
+            for c in cards
         ]
 
         total_faturas = sum(inv.total for inv in self._invoices)
@@ -1277,14 +1283,14 @@ class CartoesView(QWidget):
         self.tbl_cards.blockSignals(False)
 
         target_card = self._invoices[sel_row].card
-        self._rebuild_card_tiles(target_card.id)
-
-        if prev_invoice_month and prev_card_id == target_card.id:
+        if not period_changed and prev_invoice_month and prev_card_id == target_card.id:
             inv_to_show = self.card_service.get_invoice(
                 target_card.id, prev_invoice_month[0], prev_invoice_month[1]
             )
+            self._invoices[sel_row] = inv_to_show
         else:
             inv_to_show = self._invoices[sel_row]
+        self._rebuild_card_tiles(target_card.id)
         self._show_invoice(inv_to_show)
 
     def _on_card_selection_changed(self) -> None:

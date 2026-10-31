@@ -350,12 +350,25 @@ def test_open_invoice_and_realign_card_expenses(tmp_path: Path) -> None:
         conn.close()
 
 
-def test_cartoes_view_open_invoice_navigation_and_realign(tmp_path: Path) -> None:
+def test_cartoes_view_open_invoice_navigation_and_realign(tmp_path: Path, monkeypatch) -> None:
     """Valida a navegação entre faturas (estilo Nubank) e exibição do mês de competência na CartoesView."""
     app = QApplication.instance() or QApplication([])
     conn = _make_env(tmp_path)
     bkp = BackupSchedulerService(connection_manager=conn, settings=conn.settings)
     try:
+        import app.domain.services.credit_card_service as cc_mod
+        import app.ui.main_window as mw_mod
+        import app.ui.views.cartoes_view as cv_mod
+
+        class _FixedDate(date):
+            @classmethod
+            def today(cls) -> date:
+                return date(2026, 10, 18)
+
+        monkeypatch.setattr(cc_mod, "date", _FixedDate)
+        monkeypatch.setattr(mw_mod, "date", _FixedDate)
+        monkeypatch.setattr(cv_mod, "date", _FixedDate)
+
         tx = TransactionService(conn)
         cc = CreditCardService(conn, tx)
         card = cc.create_card(
@@ -397,6 +410,23 @@ def test_cartoes_view_open_invoice_navigation_and_realign(tmp_path: Path) -> Non
 
         # Realinhamento de lançamentos sem pendências
         assert cc.preview_realign_card_expenses(card.id) == []
+
+        # Cenário ciclo já fechado no mês corrente (ex.: Fecha dia 2 / Vence dia 9 em 31/10):
+        # cabeçalho em Outubro/2026 amarra automaticamente a CartoesView à fatura aberta 11/2026
+        card_closed_oct = cc.create_card(
+            nome="Cartão Fecha Dia 2", limite=1500.0, dia_fecha=2, dia_venc=9, brand_key="visa"
+        )
+        tx.create_expense(
+            descricao="Compra após fechamento de outubro",
+            valor=85.0,
+            data_vencimento=date(2026, 11, 9),
+            data_evento=date(2026, 10, 15),
+            id_cartao=card_closed_oct.id,
+        )
+        resolved = cc.resolve_invoice_for_context(card_closed_oct.id, 2026, 10, ref=date(2026, 10, 18))
+        assert (resolved.ano, resolved.mes) == (2026, 11)
+        assert resolved.status == "Aberta"
+        assert resolved.total == 85.0
         win.close()
     finally:
         conn.close()
