@@ -50,3 +50,8 @@ GEMINI.md
 
 # Chave de API Gemini (BYOK) - nunca versionar
 dados_usuario/gemini_key.local
+
+# Open Finance Pluggy (BYOK) - credenciais e arquivos locais
+dados_usuario/pluggy_config.local
+dados_usuario/pluggy_connect.html
+

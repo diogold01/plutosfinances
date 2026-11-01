@@ -188,7 +188,9 @@ def test_credit_card_invoices_limits_advances_and_refunds(tmp_path: Path) -> Non
         tx = TransactionService(conn)
         cc_service = CreditCardService(conn, tx)
 
-        acc_id = acc_repo.create_account(descricao="Nubank Conta", saldo_inicial=10000.0)
+        acc_id = acc_repo.create_account(
+            descricao="Nubank Conta", saldo_inicial=10000.0, mes_inicial=10, ano_inicial=2026
+        )
         card = cc_service.create_card(
             nome="Nubank Ultravioleta",
             limite=8000.00,

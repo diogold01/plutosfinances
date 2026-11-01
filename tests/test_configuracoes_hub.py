@@ -27,12 +27,15 @@ def test_configuracoes_hub_navigation_and_tabs(tmp_path: Path, monkeypatch) -> N
         hub = win.config_hub_view
 
         # 2. Testa troca de abas internas
-        assert hub.tabs.count() == 3
-        hub.select_tab("ferramentas")
+        assert hub.tabs.count() == 4
+        hub.select_tab("open_finance")
         assert hub.tabs.currentIndex() == 1
 
-        hub.select_tab("ia")
+        hub.select_tab("ferramentas")
         assert hub.tabs.currentIndex() == 2
+
+        hub.select_tab("ia")
+        assert hub.tabs.currentIndex() == 3
 
         hub.select_tab("banco")
         assert hub.tabs.currentIndex() == 0
@@ -40,7 +43,7 @@ def test_configuracoes_hub_navigation_and_tabs(tmp_path: Path, monkeypatch) -> N
         # 3. Testa compatibilidade legada: navigate_to("ferramentas") redireciona para a sub-aba
         win.navigate_to("ferramentas")
         assert win.current_nav_key == "configuracoes"
-        assert hub.tabs.currentIndex() == 1
+        assert hub.tabs.currentIndex() == 2
 
         # 4. Testa aba de IA
         ia_tab = hub.ia_tab

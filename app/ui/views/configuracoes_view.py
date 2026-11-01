@@ -6,8 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -60,7 +61,18 @@ class ConfiguracoesView(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        root = QVBoxLayout(content)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(16)
 
@@ -313,6 +325,9 @@ class ConfiguracoesView(QWidget):
 
         root.addWidget(prof_card)
         root.addStretch()
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
 
     def _toggle_tech_button(self) -> None:
         is_visible = self.tech_details_frame.isVisible()
@@ -573,3 +588,4 @@ class ConfiguracoesView(QWidget):
                 "Segurança de Acesso",
                 "PIN ativado com sucesso." if has_pin else "PIN desativado.",
             )
+

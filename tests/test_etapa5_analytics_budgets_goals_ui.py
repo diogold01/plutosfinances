@@ -242,7 +242,9 @@ def test_third_party_credit_card_purchase_and_partial_loan_amortization(tmp_path
         card_srv = CreditCardService(conn, tx)
         an = AnalyticsService(conn, tx)
 
-        acc_id = acc_repo.create_account(descricao="Nubank Conta", saldo_inicial=1000.0)
+        acc_id = acc_repo.create_account(
+            descricao="Nubank Conta", saldo_inicial=1000.0, mes_inicial=10, ano_inicial=2026
+        )
         card = card_srv.create_card(
             nome="Nubank Ultravioleta",
             limite=10000.0,
