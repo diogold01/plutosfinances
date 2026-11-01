@@ -49,6 +49,7 @@ from app.ui.bank_icons import (
 from app.ui.components import EmptyStateWidget
 from app.ui.icons import get_line_icon
 from app.ui.style_manager import format_currency, format_month_year
+from app.ui.views.open_finance_dialog import OpenFinanceSyncDialog
 
 
 class AccountFormDialog(QDialog):
@@ -377,6 +378,12 @@ class ContasView(QWidget):
         self.btn_new.setIcon(get_line_icon("plus", color="#FFFFFF", size=16))
         self.btn_new.clicked.connect(self.open_new_account_dialog)
 
+        # Sincronização Open Finance (Pluggy)
+        self.btn_sync_open_finance = QPushButton("Sincronizar Open Finance")
+        self.btn_sync_open_finance.setObjectName("SecondaryButton")
+        self.btn_sync_open_finance.setIcon(get_line_icon("refresh_cw", size=16))
+        self.btn_sync_open_finance.clicked.connect(self.open_sync_open_finance_dialog)
+
         # Ações Secundárias Discretas
         self.btn_reconcile = QPushButton("Ajustar saldo")
         self.btn_reconcile.setObjectName("SecondaryButton")
@@ -397,6 +404,7 @@ class ContasView(QWidget):
         self.btn_delete.setEnabled(False)
 
         top_bar.addWidget(self.btn_new)
+        top_bar.addWidget(self.btn_sync_open_finance)
         top_bar.addWidget(self.btn_reconcile)
         top_bar.addWidget(self.btn_edit)
         top_bar.addWidget(self.btn_delete)
@@ -689,6 +697,16 @@ class ContasView(QWidget):
             return
         summary = self._summaries[row]
         dlg = BalanceReconcileDialog(self.account_repo, summary, parent=self)
+        if dlg.exec():
+            if self.on_data_mutated:
+                self.on_data_mutated()
+            self.refresh_data()
+
+    def open_sync_open_finance_dialog(self) -> None:
+        profile_id, mes, ano, _ = self.get_context()
+        dlg = OpenFinanceSyncDialog(
+            self.db, profile_id=profile_id, mes=mes, ano=ano, parent=self
+        )
         if dlg.exec():
             if self.on_data_mutated:
                 self.on_data_mutated()

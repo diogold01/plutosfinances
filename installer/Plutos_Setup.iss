@@ -1,6 +1,6 @@
 ; =============================================================================
-; Script do Instalador Windows (Inno Setup 6) — Plutos Desktop Nativo (v1.2.0)
-; Compila um instalador completo versionado (Plutos_Setup_1.2.0.exe) que:
+; Script do Instalador Windows (Inno Setup 6) — Plutos Desktop Nativo (v1.3.0)
+; Compila um instalador completo versionado (Plutos_Setup_1.3.0.exe) que:
 ; 1. Instala o executável nativo Plutos.exe e bibliotecas em Program Files (ou AppData)
 ; 2. Cria automaticamente todas as pastas de banco de dados, backups e exportação
 ; 3. Inicializa o banco SQLite padrão limpo (base_padrao.sqlite) sem sobrescrever dados existentes,
@@ -11,7 +11,7 @@
 #define MyAppName "Plutos - Controle Financeiro Pessoal"
 #define MyAppShortName "Plutos"
 #ifndef MyAppVersion
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.3.0"
 #endif
 #define MyAppPublisher "Plutos Financeiro Desktop Offline"
 #define MyAppExeName "Plutos.exe"
