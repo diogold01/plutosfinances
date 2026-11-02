@@ -6,12 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -324,6 +325,58 @@ class ConfiguracoesView(QWidget):
         prof_lay.addWidget(self.table_profiles)
 
         root.addWidget(prof_card)
+
+        # ------------------------------------------------------------------ #
+        # Card 4: Parâmetros de Investimento & Rendimento (CDB / CDI)
+        # ------------------------------------------------------------------ #
+        cdi_card = QFrame()
+        cdi_card.setObjectName("CardSurface")
+        cdi_lay = QVBoxLayout(cdi_card)
+        cdi_lay.setContentsMargins(20, 18, 20, 18)
+        cdi_lay.setSpacing(12)
+
+        cdi_head = QHBoxLayout()
+        cdi_t_col = QVBoxLayout()
+        cdi_t_col.setSpacing(2)
+        lbl_cdi_title = QLabel("Parâmetros de Investimento & CDI")
+        lbl_cdi_title.setFont(f_bold)
+        lbl_cdi_sub = QLabel("Taxa CDI anual de referência para o cálculo de rendimento automático das Caixinhas (100% offline)")
+        lbl_cdi_sub.setObjectName("MutedText")
+        cdi_t_col.addWidget(lbl_cdi_title)
+        cdi_t_col.addWidget(lbl_cdi_sub)
+        cdi_head.addLayout(cdi_t_col)
+        cdi_head.addStretch()
+        cdi_lay.addLayout(cdi_head)
+
+        cdi_form_row = QHBoxLayout()
+        cdi_form_row.setSpacing(12)
+
+        lbl_taxa = QLabel("Taxa CDI Padrão Anual:")
+        lbl_taxa.setStyleSheet("font-weight: 600;")
+        self.sp_cdi_taxa = QDoubleSpinBox()
+        self.sp_cdi_taxa.setRange(0.0, 100.0)
+        self.sp_cdi_taxa.setDecimals(2)
+        self.sp_cdi_taxa.setSingleStep(0.25)
+        self.sp_cdi_taxa.setSuffix(" % ao ano")
+        self.sp_cdi_taxa.setFixedWidth(160)
+        self.sp_cdi_taxa.setValue(float(getattr(self.db.settings, "cdi_taxa_anual", 10.75) or 10.75))
+
+        btn_save_cdi = QPushButton("Salvar Taxa CDI")
+        btn_save_cdi.setObjectName("PrimaryButton")
+        btn_save_cdi.setIcon(get_line_icon("check", size=14, color="#FFFFFF"))
+        btn_save_cdi.clicked.connect(self._on_save_cdi_rate)
+
+        self.lbl_cdi_feedback = QLabel("")
+        self.lbl_cdi_feedback.setStyleSheet("color: #17A05E; font-weight: 600;")
+
+        cdi_form_row.addWidget(lbl_taxa)
+        cdi_form_row.addWidget(self.sp_cdi_taxa)
+        cdi_form_row.addWidget(btn_save_cdi)
+        cdi_form_row.addWidget(self.lbl_cdi_feedback)
+        cdi_form_row.addStretch()
+        cdi_lay.addLayout(cdi_form_row)
+
+        root.addWidget(cdi_card)
         root.addStretch()
 
         scroll.setWidget(content)
@@ -445,6 +498,17 @@ class ConfiguracoesView(QWidget):
             c_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             c_lay.addWidget(badge)
             self.table_profiles.setCellWidget(idx, 3, c_w)
+
+        if hasattr(self, "sp_cdi_taxa"):
+            self.sp_cdi_taxa.setValue(float(getattr(self.db.settings, "cdi_taxa_anual", 10.75) or 10.75))
+
+    def _on_save_cdi_rate(self) -> None:
+        rate = round(self.sp_cdi_taxa.value(), 2)
+        self.db.settings.cdi_taxa_anual = rate
+        self.db.settings.save()
+        self.lbl_cdi_feedback.setText("Taxa CDI atualizada com sucesso!")
+        QTimer.singleShot(3500, lambda: self.lbl_cdi_feedback.setText(""))
+        self.on_environment_changed()
 
     def action_create_new_database(self) -> None:
         file_path, _ = QFileDialog.getSaveFileName(

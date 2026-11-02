@@ -9,7 +9,7 @@ import pytest
 
 from app.config.app_settings import AppSettings
 from app.domain.models import KIND_DESPESA, KIND_RECEITA
-from app.domain.services.ai_service import AIContext, AIService, AIServiceError
+from app.domain.services.ai_service import AIContext, AIService, AIServiceError, format_clean_description
 
 CTX = AIContext(
     contas=["Itaú Corrente"],
@@ -81,3 +81,35 @@ def test_key_store_resolution_and_no_leak_into_settings(tmp_path, monkeypatch) -
     s = AppSettings.load(tmp_path / "s.json")
     s.save()
     assert "api_key" not in (tmp_path / "s.json").read_text(encoding="utf-8")
+
+
+def test_format_clean_description_and_title_casing() -> None:
+    # Casos em caixa baixa
+    assert format_clean_description("uber") == "Uber"
+    assert format_clean_description("farmacia nathaly") == "Farmacia Nathaly"
+    assert format_clean_description("mercado unigran") == "Mercado Unigran"
+    assert format_clean_description("padaria do bairro") == "Padaria do Bairro"
+
+    # Casos em caixa alta longa
+    assert format_clean_description("SUPERMERCADO EXTRA") == "Supermercado Extra"
+
+    # Preservação de siglas curtas
+    assert format_clean_description("PIX") == "PIX"
+    assert format_clean_description("IOF") == "IOF"
+
+    # String vazia
+    assert format_clean_description("") == "Lançamento"
+
+    # Teste de integração do parser com descrição vinda em caixa baixa
+    svc = AIService(
+        "k",
+        transport=_fake(
+            [
+                {"tipo": "DESPESA", "descricao": "uber", "valor": 2.59, "data": "2026-10-31"},
+                {"tipo": "DESPESA", "descricao": "farmacia nathaly", "valor": 16.14, "data": "2026-10-31"},
+            ]
+        ),
+    )
+    drafts = svc.parse_transactions("uber 2,59 e farmacia nathaly 16,14", CTX, TODAY)
+    assert drafts[0].descricao == "Uber"
+    assert drafts[1].descricao == "Farmacia Nathaly"

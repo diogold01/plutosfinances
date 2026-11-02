@@ -123,6 +123,7 @@ class AppSettings:
     sidebar_collapsed: bool = False
     show_technical_details: bool = True
     gemini_model: str = "gemini-3.5-flash-lite"
+    cdi_taxa_anual: float = 10.75  # Taxa CDI anual padrão (%) para cálculo de rendimento de Caixinhas CDB
     _settings_path: Path = field(
         default_factory=lambda: DEFAULT_SETTINGS_FILE, repr=False, compare=False
     )
