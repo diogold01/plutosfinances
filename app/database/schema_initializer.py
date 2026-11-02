@@ -158,6 +158,9 @@ RUNTIME_COLUMN_MIGRATIONS: Dict[str, List[Tuple[str, str]]] = {
         ("liquidacao", "TEXT"),
         ("somar_todas_contas_agrupadas", "TEXT DEFAULT 'S'"),
         ("image_url", "TEXT"),
+        ("tipo_rendimento", "TEXT DEFAULT 'NENHUM'"),
+        ("percentual_cdi", "REAL DEFAULT 100.0"),
+        ("data_inicio_rendimento", "TEXT"),
     ],
     "cartoes_credito": [
         ("nome_carteira", "TEXT"),

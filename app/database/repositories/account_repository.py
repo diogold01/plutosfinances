@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from app.config.theme_palette import argb_int_to_hex
 from app.database.connection_manager import ConnectionManager
+from app.services.investment_yield_service import calculate_account_monthly_yield
 
 
 @dataclass
@@ -41,10 +42,17 @@ class AccountBalanceSummaryDTO:
     transf_credito_pend: float
     transf_debito_efet: float
     transf_debito_pend: float
+    tipo_rendimento: str = "NENHUM"
+    percentual_cdi: float = 100.0
+    rendimento_acumulado: float = 0.0
 
     @property
-    def saldo_atual(self) -> float:
-        """Saldo confirmado (efetivado) no mês."""
+    def is_cdb(self) -> bool:
+        return self.tipo_rendimento == "CDB_CDI"
+
+    @property
+    def saldo_aportado(self) -> float:
+        """Capital líquido aportado (sem rendimentos)."""
         return round(
             self.saldo_inicial
             + self.receitas_efetivadas
@@ -53,6 +61,14 @@ class AccountBalanceSummaryDTO:
             - self.transf_debito_efet,
             2,
         )
+
+    @property
+    def saldo_atual(self) -> float:
+        """Saldo confirmado (efetivado) no mês, somando o rendimento se for Caixinha CDB."""
+        base = self.saldo_aportado
+        if self.is_cdb:
+            return round(base + self.rendimento_acumulado, 2)
+        return base
 
     @property
     def saldo_previsto(self) -> float:
@@ -103,12 +119,17 @@ class AccountRepository:
         currency: str = "BRL",
         mes_inicial: Optional[int] = None,
         ano_inicial: Optional[int] = None,
+        tipo_rendimento: str = "NENHUM",
+        percentual_cdi: float = 100.0,
     ) -> str:
         account_id = str(uuid.uuid4())[:8]
         today = date.today()
         m = mes_inicial or today.month
         y = ano_inicial or today.year
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if tipo_rendimento == "CDB_CDI":
+            investimento = "S"
 
         with self.db.transaction() as cur:
             if padrao == "S":
@@ -126,9 +147,10 @@ class AccountRepository:
                 INSERT INTO contas (
                     id, descricao, exibir_resumo, data_cadastro, somar_total,
                     padrao, id_categoria, cheque_especial, fav, exibir_saldo,
-                    image_id, image_url, investimento, sequence, id_profile, currency
+                    image_id, image_url, investimento, sequence, id_profile, currency,
+                    tipo_rendimento, percentual_cdi
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     account_id,
@@ -147,6 +169,8 @@ class AccountRepository:
                     int(seq),
                     str(profile_id),
                     currency,
+                    str(tipo_rendimento),
+                    float(percentual_cdi),
                 ),
             )
             cur.execute(
@@ -181,7 +205,12 @@ class AccountRepository:
         image_id: int = 0,
         image_key: str = "ic_banco_default.png",
         profile_id: str = "1",
+        tipo_rendimento: str = "NENHUM",
+        percentual_cdi: float = 100.0,
     ) -> None:
+        if tipo_rendimento == "CDB_CDI":
+            investimento = "S"
+
         with self.db.transaction() as cur:
             if padrao == "S":
                 cur.execute(
@@ -201,7 +230,9 @@ class AccountRepository:
                     fav = ?,
                     exibir_saldo = ?,
                     image_id = ?,
-                    image_url = ?
+                    image_url = ?,
+                    tipo_rendimento = ?,
+                    percentual_cdi = ?
                 WHERE id = ?
                 """,
                 (
@@ -216,6 +247,8 @@ class AccountRepository:
                     exibir_saldo,
                     int(image_id),
                     image_key,
+                    str(tipo_rendimento),
+                    float(percentual_cdi),
                     str(account_id),
                 ),
             )
@@ -416,11 +449,13 @@ class AccountRepository:
 
     def _compute_monthly_flows(
         self, account_id: str, mes: int, ano: int
-    ) -> dict[str, float]:
+    ) -> dict[str, float | dict[date, float]]:
         """Calcula receitas, despesas (inclusive fixas) e transferências da conta no mês/ano."""
         last_day = calendar.monthrange(int(ano), int(mes))[1]
         start_date = f"{int(ano):04d}-{int(mes):02d}-01"
         end_date = f"{int(ano):04d}-{int(mes):02d}-{last_day:02d}"
+
+        daily_movements: dict[date, float] = {}
 
         # 1. Receitas normais/parceladas no mês + Receitas fixas ativas no mês
         rec_rows = self.db.execute_query(
@@ -454,6 +489,11 @@ class AccountRepository:
             ).upper()
             if efet_flag in ("S", "PG", "E"):
                 rec_efet += val
+                try:
+                    d_dt = date.fromisoformat(str(rr["data"])[:10])
+                    daily_movements[d_dt] = daily_movements.get(d_dt, 0.0) + val
+                except Exception:
+                    pass
             else:
                 rec_pend += val
 
@@ -492,13 +532,18 @@ class AccountRepository:
             ).lower()
             if st_flag in ("pg", "e", "s"):
                 desp_pg += val + juros
+                try:
+                    d_dt = date.fromisoformat(str(dr["data"])[:10])
+                    daily_movements[d_dt] = daily_movements.get(d_dt, 0.0) - (val + juros)
+                except Exception:
+                    pass
             else:
                 desp_pd += val + juros
 
         # 3. Transferências de entrada (crédito) e saída (débito)
         transf_rows = self.db.execute_query(
             """
-            SELECT id_conta_origem, id_conta_destino, valor, COALESCE(contabilizada, 'N') AS contabilizada
+            SELECT id_conta_origem, id_conta_destino, valor, data, COALESCE(contabilizada, 'N') AS contabilizada
             FROM transferencias
             WHERE (id_conta_origem = ? OR id_conta_destino = ?)
               AND data_exclusao IS NULL
@@ -513,11 +558,21 @@ class AccountRepository:
             if str(tr["id_conta_destino"]) == str(account_id):
                 if is_efet:
                     tc_ef += val
+                    try:
+                        d_dt = date.fromisoformat(str(tr["data"])[:10])
+                        daily_movements[d_dt] = daily_movements.get(d_dt, 0.0) + val
+                    except Exception:
+                        pass
                 else:
                     tc_pd += val
             if str(tr["id_conta_origem"]) == str(account_id):
                 if is_efet:
                     td_ef += val
+                    try:
+                        d_dt = date.fromisoformat(str(tr["data"])[:10])
+                        daily_movements[d_dt] = daily_movements.get(d_dt, 0.0) - val
+                    except Exception:
+                        pass
                 else:
                     td_pd += val
 
@@ -530,6 +585,7 @@ class AccountRepository:
             "transf_credito_pend": round(tc_pd, 2),
             "transf_debito_efet": round(td_ef, 2),
             "transf_debito_pend": round(td_pd, 2),
+            "daily_movements": daily_movements,
         }
 
     def get_account_summary(
@@ -556,7 +612,9 @@ class AccountRepository:
                    COALESCE(c.fav, 0) AS fav,
                    COALESCE(c.exibir_saldo, 'S') AS exibir_saldo,
                    COALESCE(c.cheque_especial, 0) AS cheque_especial,
-                   COALESCE(c.currency, 'BRL') AS currency
+                   COALESCE(c.currency, 'BRL') AS currency,
+                   COALESCE(c.tipo_rendimento, 'NENHUM') AS tipo_rendimento,
+                   COALESCE(c.percentual_cdi, 100.0) AS percentual_cdi
             FROM contas c
             LEFT JOIN contas_cat cc ON cc.id = c.id_categoria
             WHERE c.id = ?
@@ -568,6 +626,27 @@ class AccountRepository:
 
         si, overdraft = self._compute_opening_balance(str(row["id"]), m, y)
         flows = self._compute_monthly_flows(str(row["id"]), m, y)
+        daily_movs = flows.pop("daily_movements", {})
+
+        tipo_rendimento = str(row["tipo_rendimento"] or "NENHUM")
+        percentual_cdi = float(row["percentual_cdi"] or 100.0)
+        rendimento = 0.0
+
+        if tipo_rendimento == "CDB_CDI":
+            cdi_annual = 10.75
+            if hasattr(self.db, "settings") and hasattr(self.db.settings, "cdi_taxa_anual"):
+                cdi_annual = float(self.db.settings.cdi_taxa_anual or 10.75)
+
+            y_res = calculate_account_monthly_yield(
+                saldo_inicial=si,
+                daily_movements=daily_movs,
+                year=y,
+                month=m,
+                cdi_annual_pct=cdi_annual,
+                percentual_cdi=percentual_cdi,
+            )
+            rendimento = y_res.rendimento_acumulado
+
         return AccountBalanceSummaryDTO(
             id=str(row["id"]),
             id_profile=str(row["id_profile"] or "1"),
@@ -588,6 +667,9 @@ class AccountRepository:
             mes=m,
             ano=y,
             saldo_inicial=si,
+            tipo_rendimento=tipo_rendimento,
+            percentual_cdi=percentual_cdi,
+            rendimento_acumulado=rendimento,
             **flows,
         )
 

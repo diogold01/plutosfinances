@@ -13,6 +13,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -20,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config import gemini_key_store as key_store
 from app.config.theme_palette import (
     EXPENSE_RED,
     INCOME_GREEN,
@@ -28,10 +32,490 @@ from app.config.theme_palette import (
 )
 from app.database.connection_manager import ConnectionManager
 from app.domain.models import KIND_DESPESA, KIND_RECEITA
-from app.domain.services.analytics_service import AnalyticsService
+from app.domain.services.ai_service import AIService, FinancialHealthReport
+from app.domain.services.analytics_service import AnalyticsService, FinancialHealthData
+from app.ui.ai_worker import FinancialHealthWorker
 from app.ui.bank_icons import create_color_badge_icon
-from app.ui.components import EmptyStateWidget, KpiCard
+from app.ui.components import Badge, EmptyStateWidget, KpiCard
+from app.ui.icons import get_line_pixmap
 from app.ui.style_manager import format_currency
+
+
+class FinancialHealthPanel(QWidget):
+    """
+    Painel de Diagnóstico de Saúde Financeira com Inteligência Artificial (Google Gemini BYOK).
+    Apresenta Score (0-100), Regra 50-30-20 comparativa, Alertas de Anomalias (vs 2 meses anteriores),
+    Projeção de Fechamento do Mês e Recomendações Práticas Acionáveis.
+    """
+
+    def __init__(
+        self,
+        db: ConnectionManager,
+        analytics: AnalyticsService,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.db = db
+        self.analytics = analytics
+        self.profile_id = "1"
+        self.month = 10
+        self.year = 2026
+        self._current_report: Optional[FinancialHealthReport] = None
+        self._worker: Optional[FinancialHealthWorker] = None
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        root_lay = QVBoxLayout(self)
+        root_lay.setContentsMargins(0, 0, 0, 0)
+        root_lay.setSpacing(0)
+
+        # Scroll vertical fluido
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        self.content_lay = QVBoxLayout(content)
+        self.content_lay.setContentsMargins(4, 4, 4, 16)
+        self.content_lay.setSpacing(14)
+
+        # 1. Header do Diagnóstico IA
+        header_card = QFrame()
+        header_card.setObjectName("CardSurface")
+        h_lay = QHBoxLayout(header_card)
+        h_lay.setContentsMargins(20, 16, 20, 16)
+        h_lay.setSpacing(16)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(4)
+        lbl_head = QLabel("Diagnóstico de Saúde Financeira com IA")
+        lbl_head.setStyleSheet("font-size: 16px; font-weight: 700;")
+        lbl_sub = QLabel(
+            "Análise preditiva por IA com Score, proporção 50-30-20, detecção de anomalias e ações práticas."
+        )
+        lbl_sub.setObjectName("MutedText")
+        title_col.addWidget(lbl_head)
+        title_col.addWidget(lbl_sub)
+        h_lay.addLayout(title_col, stretch=1)
+
+        action_col = QVBoxLayout()
+        action_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        action_col.setSpacing(6)
+
+        self.btn_generate = QPushButton("✨ Gerar Diagnóstico IA")
+        self.btn_generate.setObjectName("PrimaryButton")
+        self.btn_generate.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_generate.setMinimumHeight(38)
+        self.btn_generate.setMinimumWidth(210)
+        self.btn_generate.clicked.connect(self._on_generate_clicked)
+
+        self.lbl_status = QLabel("")
+        self.lbl_status.setObjectName("MutedText")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        action_col.addWidget(self.btn_generate)
+        action_col.addWidget(self.lbl_status)
+        h_lay.addLayout(action_col)
+
+        self.content_lay.addWidget(header_card)
+
+        # 2. Container de Estado Vazio / Prévia Local
+        self.empty_card = QFrame()
+        self.empty_card.setObjectName("CardSurface")
+        e_lay = QVBoxLayout(self.empty_card)
+        e_lay.setContentsMargins(28, 30, 28, 30)
+        e_lay.setSpacing(12)
+        e_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        lbl_e_ico = QLabel()
+        lbl_e_ico.setPixmap(get_line_pixmap("sparkles", color="#E5603D", size=32))
+        lbl_e_ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        e_lay.addWidget(lbl_e_ico)
+
+        self.lbl_empty_title = QLabel("Pronto para diagnosticar suas finanças")
+        self.lbl_empty_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.lbl_empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        e_lay.addWidget(self.lbl_empty_title)
+
+        self.lbl_empty_desc = QLabel(
+            "Clique no botão 'Gerar Diagnóstico IA' para processar suas receitas, "
+            "despesas e médias dos últimos 2 meses através do Google Gemini.\n"
+            "Seus dados financeiros permanecem 100% anônimos e sob sua chave privada (BYOK)."
+        )
+        self.lbl_empty_desc.setObjectName("MutedText")
+        self.lbl_empty_desc.setWordWrap(True)
+        self.lbl_empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        e_lay.addWidget(self.lbl_empty_desc)
+
+        # Prévia das proporções calculadas localmente
+        self.preview_box = QHBoxLayout()
+        self.preview_box.setSpacing(12)
+        self.lbl_p_ess = QLabel("Essenciais: —")
+        self.lbl_p_est = QLabel("Estilo de Vida: —")
+        self.lbl_p_pou = QLabel("Poupança: —")
+        for lbl in (self.lbl_p_ess, self.lbl_p_est, self.lbl_p_pou):
+            lbl.setStyleSheet(
+                "background-color: rgba(123, 129, 144, 0.08); border-radius: 8px; "
+                "padding: 8px 14px; font-weight: 500; font-size: 13px;"
+            )
+            self.preview_box.addWidget(lbl)
+        e_lay.addSpacing(6)
+        e_lay.addLayout(self.preview_box)
+
+        self.content_lay.addWidget(self.empty_card)
+
+        # 3. Container de Resultados da IA (inicialmente oculto)
+        self.results_widget = QWidget()
+        res_lay = QVBoxLayout(self.results_widget)
+        res_lay.setContentsMargins(0, 0, 0, 0)
+        res_lay.setSpacing(14)
+
+        # Linha Superior: Score de Saúde + Resumo Executivo
+        top_res_row = QHBoxLayout()
+        top_res_row.setSpacing(14)
+
+        # Card do Score
+        self.score_card = QFrame()
+        self.score_card.setObjectName("CardSurface")
+        self.score_card.setMinimumWidth(240)
+        sc_lay = QVBoxLayout(self.score_card)
+        sc_lay.setContentsMargins(20, 16, 20, 16)
+        sc_lay.setSpacing(4)
+        sc_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        lbl_sc_title = QLabel("SCORE DE SAÚDE")
+        lbl_sc_title.setObjectName("MutedText")
+        lbl_sc_title.setStyleSheet("font-size: 11px; font-weight: 700; letter-spacing: 1px;")
+        sc_lay.addWidget(lbl_sc_title, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_score_num = QLabel("85")
+        self.lbl_score_num.setStyleSheet("font-size: 42px; font-weight: 800; color: #1F9D6A;")
+        sc_lay.addWidget(self.lbl_score_num, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.badge_score_status = Badge("Excelente", "success")
+        sc_lay.addWidget(self.badge_score_status, alignment=Qt.AlignmentFlag.AlignCenter)
+        top_res_row.addWidget(self.score_card)
+
+        # Card do Resumo Executivo
+        self.summary_card = QFrame()
+        self.summary_card.setObjectName("CardSurface")
+        sum_lay = QVBoxLayout(self.summary_card)
+        sum_lay.setContentsMargins(20, 16, 20, 16)
+        sum_lay.setSpacing(6)
+
+        lbl_sum_head = QLabel("Resumo Executivo do Período")
+        lbl_sum_head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        sum_lay.addWidget(lbl_sum_head)
+
+        self.lbl_summary_text = QLabel("")
+        self.lbl_summary_text.setWordWrap(True)
+        self.lbl_summary_text.setStyleSheet("font-size: 13px; line-height: 1.4;")
+        sum_lay.addWidget(self.lbl_summary_text)
+        sum_lay.addStretch()
+        top_res_row.addWidget(self.summary_card, stretch=1)
+
+        res_lay.addLayout(top_res_row)
+
+        # Card da Regra 50-30-20
+        self.rule_card = QFrame()
+        self.rule_card.setObjectName("CardSurface")
+        r_lay = QVBoxLayout(self.rule_card)
+        r_lay.setContentsMargins(20, 16, 20, 16)
+        r_lay.setSpacing(10)
+
+        lbl_r_title = QLabel("Distribuição Orçamentária — Regra 50-30-20")
+        lbl_r_title.setStyleSheet("font-size: 15px; font-weight: 600;")
+        r_lay.addWidget(lbl_r_title)
+
+        # Barra Essenciais (Meta 50%)
+        self.lbl_bar_ess = QLabel("Gastos Essenciais: 0.0% (Meta ideal: até 50%)")
+        self.bar_ess = QProgressBar()
+        self.bar_ess.setFixedHeight(8)
+        self.bar_ess.setTextVisible(False)
+        self.bar_ess.setRange(0, 100)
+        self.bar_ess.setStyleSheet(
+            "QProgressBar { background-color: rgba(123, 129, 144, 0.15); border: none; border-radius: 99px; }"
+            "QProgressBar::chunk { background-color: #1F9D6A; border-radius: 99px; }"
+        )
+        r_lay.addWidget(self.lbl_bar_ess)
+        r_lay.addWidget(self.bar_ess)
+
+        # Barra Estilo de Vida (Meta 30%)
+        self.lbl_bar_est = QLabel("Estilo de Vida: 0.0% (Meta ideal: até 30%)")
+        self.bar_est = QProgressBar()
+        self.bar_est.setFixedHeight(8)
+        self.bar_est.setTextVisible(False)
+        self.bar_est.setRange(0, 100)
+        self.bar_est.setStyleSheet(
+            "QProgressBar { background-color: rgba(123, 129, 144, 0.15); border: none; border-radius: 99px; }"
+            "QProgressBar::chunk { background-color: #E68A00; border-radius: 99px; }"
+        )
+        r_lay.addWidget(self.lbl_bar_est)
+        r_lay.addWidget(self.bar_est)
+
+        # Barra Poupança / Investimentos (Meta 20%)
+        self.lbl_bar_pou = QLabel("Poupança / Investimentos: 0.0% (Meta ideal: 20% ou mais)")
+        self.bar_pou = QProgressBar()
+        self.bar_pou.setFixedHeight(8)
+        self.bar_pou.setTextVisible(False)
+        self.bar_pou.setRange(0, 100)
+        self.bar_pou.setStyleSheet(
+            "QProgressBar { background-color: rgba(123, 129, 144, 0.15); border: none; border-radius: 99px; }"
+            "QProgressBar::chunk { background-color: #2F80ED; border-radius: 99px; }"
+        )
+        r_lay.addWidget(self.lbl_bar_pou)
+        r_lay.addWidget(self.bar_pou)
+
+        # Comentário da Regra
+        self.lbl_rule_comment = QLabel("")
+        self.lbl_rule_comment.setObjectName("MutedText")
+        self.lbl_rule_comment.setWordWrap(True)
+        self.lbl_rule_comment.setStyleSheet(
+            "background-color: rgba(123, 129, 144, 0.06); border-radius: 8px; padding: 10px 14px; font-size: 13px;"
+        )
+        r_lay.addWidget(self.lbl_rule_comment)
+
+        res_lay.addWidget(self.rule_card)
+
+        # Linha Dupla: Alertas e Projeção
+        mid_row = QHBoxLayout()
+        mid_row.setSpacing(14)
+
+        # Alertas de Anomalias
+        self.alerts_card = QFrame()
+        self.alerts_card.setObjectName("CardSurface")
+        self.al_lay = QVBoxLayout(self.alerts_card)
+        self.al_lay.setContentsMargins(20, 16, 20, 16)
+        self.al_lay.setSpacing(10)
+        lbl_al_head = QLabel("Alertas de Variações Atípicas (vs. Últimos 2 Meses)")
+        lbl_al_head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        self.al_lay.addWidget(lbl_al_head)
+
+        self.alerts_list_widget = QWidget()
+        self.alerts_list_lay = QVBoxLayout(self.alerts_list_widget)
+        self.alerts_list_lay.setContentsMargins(0, 0, 0, 0)
+        self.alerts_list_lay.setSpacing(6)
+        self.al_lay.addWidget(self.alerts_list_widget)
+        self.al_lay.addStretch()
+        mid_row.addWidget(self.alerts_card, 1)
+
+        # Projeção de Fechamento
+        self.proj_card = QFrame()
+        self.proj_card.setObjectName("CardSurface")
+        pr_lay = QVBoxLayout(self.proj_card)
+        pr_lay.setContentsMargins(20, 16, 20, 16)
+        pr_lay.setSpacing(10)
+        lbl_pr_head = QLabel("Projeção e Ritmo de Gastos")
+        lbl_pr_head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        pr_lay.addWidget(lbl_pr_head)
+
+        self.lbl_proj_text = QLabel("")
+        self.lbl_proj_text.setWordWrap(True)
+        self.lbl_proj_text.setStyleSheet("font-size: 13px; line-height: 1.4;")
+        pr_lay.addWidget(self.lbl_proj_text)
+        pr_lay.addStretch()
+        mid_row.addWidget(self.proj_card, 1)
+
+        res_lay.addLayout(mid_row)
+
+        # Card de Recomendações Práticas Acionáveis
+        self.recs_card = QFrame()
+        self.recs_card.setObjectName("CardSurface")
+        self.rec_lay = QVBoxLayout(self.recs_card)
+        self.rec_lay.setContentsMargins(20, 16, 20, 16)
+        self.rec_lay.setSpacing(10)
+
+        lbl_rec_head = QLabel("Plano de Ação e Recomendações Priorizadas")
+        lbl_rec_head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        self.rec_lay.addWidget(lbl_rec_head)
+
+        self.recs_list_widget = QWidget()
+        self.recs_list_lay = QVBoxLayout(self.recs_list_widget)
+        self.recs_list_lay.setContentsMargins(0, 0, 0, 0)
+        self.recs_list_lay.setSpacing(6)
+        self.rec_lay.addWidget(self.recs_list_widget)
+
+        res_lay.addWidget(self.recs_card)
+
+        self.results_widget.setVisible(False)
+        self.content_lay.addWidget(self.results_widget)
+
+        scroll.setWidget(content)
+        root_lay.addWidget(scroll)
+
+    def load_context(self, profile_id: str, month: int, year: int) -> None:
+        """Atualiza o período de referência e atualiza a prévia local calculada."""
+        self.profile_id = profile_id
+        self.month = month
+        self.year = year
+
+        # Se já temos relatório do mesmo período, mantém exibido; caso contrário reseta para estado inicial
+        if (
+            self._current_report is not None
+            and getattr(self, "_report_period", None) != (month, year)
+        ):
+            self._current_report = None
+            self.results_widget.setVisible(False)
+            self.empty_card.setVisible(True)
+
+        health_data = self.analytics.get_financial_health_summary(
+            self.year, self.month, profile_id=self.profile_id
+        )
+
+        self.lbl_empty_title.setText(
+            f"Pronto para diagnosticar suas finanças de {self.month:02d}/{self.year}"
+        )
+        self.lbl_p_ess.setText(f"🟢 Essenciais: {health_data.percentual_essenciais:.1f}%")
+        self.lbl_p_est.setText(f"🟡 Estilo de Vida: {health_data.percentual_estilo_vida:.1f}%")
+        self.lbl_p_pou.setText(f"🔵 Poupança/Investimento: {health_data.percentual_poupanca:.1f}%")
+
+    def _on_generate_clicked(self) -> None:
+        key, _src = key_store.resolve_gemini_key(self.db.settings.user_data_dir)
+        if not key:
+            self.lbl_status.setText("Chave Gemini não configurada (Configurações → IA).")
+            self.lbl_status.setStyleSheet("color: #D64545; font-weight: 500;")
+            return
+
+        self.btn_generate.setEnabled(False)
+        self.btn_generate.setText("⏳ Analisando com IA...")
+        self.lbl_status.setText("Enviando métricas anonimizadas ao Gemini...")
+        self.lbl_status.setStyleSheet("color: #7B8190;")
+
+        health_data = self.analytics.get_financial_health_summary(
+            self.year, self.month, profile_id=self.profile_id
+        )
+        payload = health_data.to_ai_payload()
+
+        service = AIService(key, model=self.db.settings.gemini_model)
+        self._worker = FinancialHealthWorker(service, payload, parent=self)
+        self._worker.succeeded.connect(self._on_worker_success)
+        self._worker.failed.connect(self._on_worker_error)
+        self._worker.start()
+
+    def _on_worker_success(self, report: FinancialHealthReport) -> None:
+        self._current_report = report
+        self._report_period = (self.month, self.year)
+        self.btn_generate.setEnabled(True)
+        self.btn_generate.setText("✨ Atualizar Diagnóstico IA")
+        self.lbl_status.setText("Diagnóstico concluído com sucesso!")
+        self.lbl_status.setStyleSheet("color: #1F9D6A;")
+
+        # 1. Score e Resumo
+        self.lbl_score_num.setText(str(report.score_saude))
+        if report.score_saude >= 70:
+            self.lbl_score_num.setStyleSheet("font-size: 42px; font-weight: 800; color: #1F9D6A;")
+            self.badge_score_status.setText("Saudável")
+            self.badge_score_status.set_variant("success")
+        elif report.score_saude >= 50:
+            self.lbl_score_num.setStyleSheet("font-size: 42px; font-weight: 800; color: #E68A00;")
+            self.badge_score_status.setText("Atenção")
+            self.badge_score_status.set_variant("warning")
+        else:
+            self.lbl_score_num.setStyleSheet("font-size: 42px; font-weight: 800; color: #D64545;")
+            self.badge_score_status.setText("Crítico")
+            self.badge_score_status.set_variant("danger")
+
+        self.lbl_summary_text.setText(report.resumo)
+
+        # 2. Regra 50-30-20
+        self.lbl_bar_ess.setText(
+            f"Gastos Essenciais: {report.essenciais_pct:.1f}% (Meta ideal: até 50%)"
+        )
+        self.bar_ess.setValue(int(min(100, max(0, report.essenciais_pct))))
+
+        self.lbl_bar_est.setText(
+            f"Estilo de Vida: {report.estilo_vida_pct:.1f}% (Meta ideal: até 30%)"
+        )
+        self.bar_est.setValue(int(min(100, max(0, report.estilo_vida_pct))))
+
+        self.lbl_bar_pou.setText(
+            f"Poupança / Investimentos: {report.poupanca_pct:.1f}% (Meta ideal: 20% ou mais)"
+        )
+        self.bar_pou.setValue(int(min(100, max(0, report.poupanca_pct))))
+
+        self.lbl_rule_comment.setText(report.comentario_regra)
+
+        # 3. Alertas de Anomalias
+        while self.alerts_list_lay.count():
+            item = self.alerts_list_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if report.alertas_anomalias:
+            for alerta in report.alertas_anomalias:
+                f = QFrame()
+                f.setStyleSheet(
+                    "background-color: rgba(230, 138, 0, 0.08); border-left: 3px solid #E68A00; "
+                    "border-radius: 6px; padding: 6px 10px;"
+                )
+                flay = QHBoxLayout(f)
+                flay.setContentsMargins(4, 4, 4, 4)
+                flay.setSpacing(8)
+                lbl_ico = QLabel("⚠️")
+                lbl_txt = QLabel(alerta)
+                lbl_txt.setWordWrap(True)
+                lbl_txt.setStyleSheet("font-size: 13px;")
+                flay.addWidget(lbl_ico)
+                flay.addWidget(lbl_txt, 1)
+                self.alerts_list_lay.addWidget(f)
+        else:
+            f = QFrame()
+            f.setStyleSheet(
+                "background-color: rgba(31, 157, 106, 0.08); border-left: 3px solid #1F9D6A; "
+                "border-radius: 6px; padding: 6px 10px;"
+            )
+            flay = QHBoxLayout(f)
+            flay.setContentsMargins(4, 4, 4, 4)
+            flay.setSpacing(8)
+            lbl_ico = QLabel("✓")
+            lbl_ico.setStyleSheet("color: #1F9D6A; font-weight: bold;")
+            lbl_txt = QLabel("Nenhuma anomalia de gastos detectada em relação à média recente.")
+            lbl_txt.setStyleSheet("font-size: 13px; color: #1F9D6A;")
+            flay.addWidget(lbl_ico)
+            flay.addWidget(lbl_txt, 1)
+            self.alerts_list_lay.addWidget(f)
+
+        # 4. Projeção de Fechamento
+        self.lbl_proj_text.setText(report.projecao_fechamento)
+
+        # 5. Recomendações Práticas
+        while self.recs_list_lay.count():
+            item = self.recs_list_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for idx, rec in enumerate(report.recomendacoes_praticas, start=1):
+            rf = QFrame()
+            rf.setStyleSheet(
+                "background-color: rgba(123, 129, 144, 0.06); border-radius: 8px; padding: 8px 12px;"
+            )
+            rflay = QHBoxLayout(rf)
+            rflay.setContentsMargins(4, 4, 4, 4)
+            rflay.setSpacing(10)
+
+            lbl_num = QLabel(str(idx))
+            lbl_num.setFixedSize(22, 22)
+            lbl_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_num.setStyleSheet(
+                "background-color: #E5603D; color: #FFFFFF; font-weight: 700; border-radius: 11px; font-size: 11px;"
+            )
+            lbl_rec_txt = QLabel(rec)
+            lbl_rec_txt.setWordWrap(True)
+            lbl_rec_txt.setStyleSheet("font-size: 13px;")
+
+            rflay.addWidget(lbl_num)
+            rflay.addWidget(lbl_rec_txt, 1)
+            self.recs_list_lay.addWidget(rf)
+
+        self.empty_card.setVisible(False)
+        self.results_widget.setVisible(True)
+
+    def _on_worker_error(self, error_msg: str) -> None:
+        self.btn_generate.setEnabled(True)
+        self.btn_generate.setText("✨ Tentar Novamente")
+        self.lbl_status.setText(f"Erro: {error_msg}")
+        self.lbl_status.setStyleSheet("color: #D64545; font-weight: 500;")
 
 
 class RelatoriosView(QWidget):
@@ -99,6 +583,7 @@ class RelatoriosView(QWidget):
         self.cb_report_type.addItem(
             "Compras / Repasses de Terceiros (Não-Operacionais)", "TERCEIROS"
         )
+        self.cb_report_type.addItem("✨ Diagnóstico & Saúde Financeira (IA)", "AI_HEALTH")
         self.cb_report_type.currentIndexChanged.connect(lambda _: self.refresh_data())
 
         filter_box.addWidget(lbl_tipo)
@@ -162,6 +647,9 @@ class RelatoriosView(QWidget):
         )
         self.stack.addWidget(self.empty_widget)
 
+        self.health_panel = FinancialHealthPanel(self.db, self.analytics, self)
+        self.stack.addWidget(self.health_panel)
+
         card_lay.addWidget(self.stack, stretch=1)
         root.addWidget(table_card, stretch=1)
 
@@ -170,6 +658,26 @@ class RelatoriosView(QWidget):
         mode = self.db.settings.date_reference_mode
         rtype = str(self.cb_report_type.currentData() or "DESP_CAT")
         pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+
+        if rtype == "AI_HEALTH":
+            health_data = self.analytics.get_financial_health_summary(
+                year, month, profile_id=profile_id
+            )
+            self.kpi_confirmed.set_title("Receitas do Mês")
+            self.kpi_confirmed.set_value(format_currency(health_data.total_receitas))
+            self.kpi_confirmed.set_subtitle(f"Competência {month:02d}/{year}")
+
+            self.kpi_pending.set_title("Despesas do Mês")
+            self.kpi_pending.set_value(format_currency(health_data.total_despesas))
+            self.kpi_pending.set_subtitle(f"Competência {month:02d}/{year}")
+
+            self.kpi_total.set_title("Resultado Líquido")
+            self.kpi_total.set_value(format_currency(health_data.resultado_liquido))
+            self.kpi_total.set_subtitle("Superávit / Déficit do período")
+
+            self.health_panel.load_context(profile_id, month, year)
+            self.stack.setCurrentWidget(self.health_panel)
+            return
 
         if rtype in ("FLOW_6", "FLOW_12"):
             months_cnt = 12 if rtype == "FLOW_12" else 6

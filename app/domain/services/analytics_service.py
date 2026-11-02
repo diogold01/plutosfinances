@@ -8,7 +8,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Dict, List, Optional
+import unicodedata
+from typing import Any, Dict, List, Optional
 
 from app.config.theme_palette import argb_int_to_hex, hex_to_argb_int
 from app.database.connection_manager import ConnectionManager
@@ -35,6 +36,77 @@ class CategoryBreakdownRow:
     total: float
     percentual: float
     quantidade: int
+
+
+@dataclass
+class CategoryHealthMetric:
+    categoria_nome: str
+    total: float
+    percentual_despesas: float
+    media_anterior_2m: float
+    variacao_percentual: float  # Ex.: +35.2% ou -10.0%
+    tipo_regra: str  # "ESSENCIAL" | "ESTILO_DE_VIDA"
+    cor_hex: str = "#5C6BC0"
+
+
+@dataclass
+class FinancialHealthData:
+    ano: int
+    mes: int
+    total_receitas: float
+    total_despesas: float
+    resultado_liquido: float
+    saldo_contas: float
+    saldo_investimentos: float
+    despesas_essenciais: float
+    despesas_estilo_vida: float
+    percentual_essenciais: float
+    percentual_estilo_vida: float
+    percentual_poupanca: float
+    categorias: List[CategoryHealthMetric] = field(default_factory=list)
+    historico_recente: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_ai_payload(self) -> Dict[str, Any]:
+        """Gera payload 100% anonimizado e estruturado para prompt da IA."""
+        return {
+            "periodo": f"{self.mes:02d}/{self.ano}",
+            "totais": {
+                "receitas": self.total_receitas,
+                "despesas": self.total_despesas,
+                "resultado_liquido": self.resultado_liquido,
+                "saldo_patrimonial": self.saldo_contas,
+                "saldo_investimentos_reserva": self.saldo_investimentos,
+            },
+            "regra_50_30_20_calculada": {
+                "essenciais": {
+                    "total": self.despesas_essenciais,
+                    "percentual_real": self.percentual_essenciais,
+                    "meta_percentual": 50.0,
+                },
+                "estilo_de_vida": {
+                    "total": self.despesas_estilo_vida,
+                    "percentual_real": self.percentual_estilo_vida,
+                    "meta_percentual": 30.0,
+                },
+                "poupanca_investimentos": {
+                    "total": max(0.0, self.resultado_liquido),
+                    "percentual_real": self.percentual_poupanca,
+                    "meta_percentual": 20.0,
+                },
+            },
+            "detalhamento_categorias": [
+                {
+                    "categoria": c.categoria_nome,
+                    "total": c.total,
+                    "participacao_despesas_pct": c.percentual_despesas,
+                    "media_2m_anteriores": c.media_anterior_2m,
+                    "variacao_vs_media_pct": c.variacao_percentual,
+                    "classificacao": c.tipo_regra,
+                }
+                for c in self.categorias
+            ],
+            "historico_2_meses_anteriores": self.historico_recente,
+        }
 
 
 @dataclass
@@ -721,3 +793,173 @@ class AnalyticsService:
             )
             for r in rows
         ]
+
+    # ------------------------------------------------------------------ #
+    # 7. Diagnóstico e Inteligência de Saúde Financeira
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _is_essential_category(cat_name: str) -> bool:
+        """Determina se uma categoria enquadra-se como Gasto Essencial (Regra 50-30-20)."""
+        raw = unicodedata.normalize("NFKD", (cat_name or "").lower())
+        norm = "".join([c for c in raw if not unicodedata.combining(c)])
+        essential_keywords = (
+            "moradia", "aluguel", "condominio", "energia", "luz", "agua", "gas",
+            "internet", "alimentacao", "mercado", "supermercado", "feira", "saude",
+            "farmacia", "medico", "hospital", "plano de saude", "educacao", "escola",
+            "faculdade", "curso", "transporte", "combustivel", "gasolina", "onibus",
+            "metro", "seguro", "imposto", "iptu", "ipva", "telefone"
+        )
+        return any(k in norm for k in essential_keywords)
+
+    def get_financial_health_summary(
+        self,
+        year: int,
+        month: int,
+        *,
+        profile_id: str = "1",
+    ) -> FinancialHealthData:
+        """
+        Gera métricas financeiras consolidadas do mês ativo e calcula desvios
+        em relação à média dos últimos 2 meses anteriores para enriquecer o diagnóstico da IA.
+        """
+        # 1. Totais do mês ativo
+        curr_occs = self.tx_service.list_occurrences(
+            year,
+            month,
+            profile_id=profile_id,
+            kinds=[KIND_RECEITA, KIND_DESPESA],
+            light=True,
+        )
+        curr_summ = self.tx_service.summarize(curr_occs)
+        tot_receitas = round(float(curr_summ["receitas"]), 2)
+        tot_despesas = round(float(curr_summ["despesas"]), 2)
+        resultado = round(tot_receitas - tot_despesas, 2)
+
+        # Saldos consolidados de contas e investimentos
+        acc_totals = self.account_repo.get_consolidated_totals(
+            profile_id=profile_id, mes=month, ano=year
+        )
+        saldo_contas = round(float(acc_totals.get("saldo_previsto", 0.0)), 2)
+        saldo_investimentos = round(float(acc_totals.get("investimentos", 0.0)), 2)
+
+        # 2. Despesas por categoria do mês atual
+        curr_cats = self.category_breakdown(
+            year,
+            month,
+            kind=KIND_DESPESA,
+            profile_id=profile_id,
+            group_by_subcategory=False,
+        )
+
+        # 3. Histórico dos 2 meses anteriores para detecção de anomalias
+        anchor = date(int(year), int(month), 1)
+        prev1_dt = add_months(anchor, -1)
+        prev2_dt = add_months(anchor, -2)
+
+        prev1_cats = {
+            c.categoria_nome: c.total
+            for c in self.category_breakdown(
+                prev1_dt.year,
+                prev1_dt.month,
+                kind=KIND_DESPESA,
+                profile_id=profile_id,
+                group_by_subcategory=False,
+            )
+        }
+        prev2_cats = {
+            c.categoria_nome: c.total
+            for c in self.category_breakdown(
+                prev2_dt.year,
+                prev2_dt.month,
+                kind=KIND_DESPESA,
+                profile_id=profile_id,
+                group_by_subcategory=False,
+            )
+        }
+
+        # Totais dos 2 meses anteriores para histórico recente
+        historico: List[Dict[str, Any]] = []
+        for p_dt in (prev2_dt, prev1_dt):
+            p_occs = self.tx_service.list_occurrences(
+                p_dt.year,
+                p_dt.month,
+                profile_id=profile_id,
+                kinds=[KIND_RECEITA, KIND_DESPESA],
+                light=True,
+            )
+            p_summ = self.tx_service.summarize(p_occs)
+            historico.append({
+                "periodo": f"{p_dt.month:02d}/{p_dt.year}",
+                "receitas": round(float(p_summ["receitas"]), 2),
+                "despesas": round(float(p_summ["despesas"]), 2),
+                "resultado": round(float(p_summ["resultado"]), 2),
+            })
+
+        # 4. Detalhamento e classificação (Essencial vs Estilo de Vida)
+        cat_metrics: List[CategoryHealthMetric] = []
+        tot_essenciais = 0.0
+        tot_estilo_vida = 0.0
+
+        for c in curr_cats:
+            val = round(float(c.total), 2)
+            c_name = c.categoria_nome
+            is_ess = self._is_essential_category(c_name)
+            tipo_regra = "ESSENCIAL" if is_ess else "ESTILO_DE_VIDA"
+
+            if is_ess:
+                tot_essenciais += val
+            else:
+                tot_estilo_vida += val
+
+            # Média dos últimos 2 meses
+            p1_val = prev1_cats.get(c_name, 0.0)
+            p2_val = prev2_cats.get(c_name, 0.0)
+            media_2m = round((p1_val + p2_val) / 2.0, 2)
+
+            if media_2m > 0:
+                var_pct = round(((val - media_2m) / media_2m) * 100.0, 1)
+            else:
+                var_pct = 0.0
+
+            pct_despesas = round((val / tot_despesas) * 100.0, 1) if tot_despesas > 0 else 0.0
+
+            cat_metrics.append(
+                CategoryHealthMetric(
+                    categoria_nome=c_name,
+                    total=val,
+                    percentual_despesas=pct_despesas,
+                    media_anterior_2m=media_2m,
+                    variacao_percentual=var_pct,
+                    tipo_regra=tipo_regra,
+                    cor_hex=c.cor_hex or "#5C6BC0",
+                )
+            )
+
+        tot_essenciais = round(tot_essenciais, 2)
+        tot_estilo_vida = round(tot_estilo_vida, 2)
+
+        # 5. Cálculo dos percentuais da Regra 50-30-20
+        base_calc = tot_receitas if tot_receitas > 0 else tot_despesas
+        if base_calc > 0:
+            pct_ess = round((tot_essenciais / base_calc) * 100.0, 1)
+            pct_est = round((tot_estilo_vida / base_calc) * 100.0, 1)
+            pct_pou = round(max(0.0, (tot_receitas - tot_despesas) / base_calc) * 100.0, 1) if tot_receitas > 0 else 0.0
+        else:
+            pct_ess, pct_est, pct_pou = 0.0, 0.0, 0.0
+
+        return FinancialHealthData(
+            ano=year,
+            mes=month,
+            total_receitas=tot_receitas,
+            total_despesas=tot_despesas,
+            resultado_liquido=resultado,
+            saldo_contas=saldo_contas,
+            saldo_investimentos=saldo_investimentos,
+            despesas_essenciais=tot_essenciais,
+            despesas_estilo_vida=tot_estilo_vida,
+            percentual_essenciais=pct_ess,
+            percentual_estilo_vida=pct_est,
+            percentual_poupanca=pct_pou,
+            categorias=cat_metrics,
+            historico_recente=historico,
+        )

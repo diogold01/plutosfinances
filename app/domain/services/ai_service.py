@@ -56,7 +56,14 @@ _RESPONSE_SCHEMA: Dict[str, Any] = {
                 "type": "OBJECT",
                 "properties": {
                     "tipo": {"type": "STRING", "enum": ["DESPESA", "RECEITA"]},
-                    "descricao": {"type": "STRING"},
+                    "descricao": {
+                        "type": "STRING",
+                        "description": (
+                            "Descrição clara, elegante e padronizada com iniciais maiúsculas "
+                            "(Title Case, ex.: 'Uber', 'Farmácia Nathaly', 'Mercado Unigran'), "
+                            "corrigindo erros de digitação e sem redundâncias como 'saída' ou 'despesa'."
+                        ),
+                    },
                     "valor": {"type": "NUMBER"},
                     "data": {"type": "STRING", "description": "YYYY-MM-DD"},
                     "conta": {"type": "STRING", "nullable": True},
@@ -69,6 +76,54 @@ _RESPONSE_SCHEMA: Dict[str, Any] = {
         }
     },
     "required": ["lancamentos"],
+}
+
+@dataclass
+class FinancialHealthReport:
+    """Diagnóstico de saúde financeira devolvido pela IA (somente leitura)."""
+
+    score_saude: int  # 0-100
+    resumo: str
+    essenciais_pct: float
+    estilo_vida_pct: float
+    poupanca_pct: float
+    comentario_regra: str
+    alertas_anomalias: List[str]
+    projecao_fechamento: str
+    recomendacoes_praticas: List[str]
+
+
+_HEALTH_REPORT_SCHEMA: Dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "score_saude": {"type": "INTEGER", "description": "Nota de saúde financeira de 0 a 100."},
+        "resumo": {"type": "STRING", "description": "Resumo geral em 1-2 frases."},
+        "regra_50_30_20": {
+            "type": "OBJECT",
+            "properties": {
+                "essenciais_pct": {"type": "NUMBER"},
+                "estilo_vida_pct": {"type": "NUMBER"},
+                "poupanca_pct": {"type": "NUMBER"},
+                "comentario": {"type": "STRING"},
+            },
+            "required": ["essenciais_pct", "estilo_vida_pct", "poupanca_pct", "comentario"],
+        },
+        "alertas_anomalias": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "projecao_fechamento": {"type": "STRING"},
+        "recomendacoes_praticas": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "3 a 4 ações práticas e mensuráveis.",
+        },
+    },
+    "required": [
+        "score_saude",
+        "resumo",
+        "regra_50_30_20",
+        "alertas_anomalias",
+        "projecao_fechamento",
+        "recomendacoes_praticas",
+    ],
 }
 
 # Transporte injetável (facilita testes sem rede): (url, headers, body) -> texto JSON
@@ -90,6 +145,27 @@ def _http_transport(url: str, headers: Dict[str, str], body: bytes, timeout: int
         raise AIServiceError(f"Erro da API Gemini (HTTP {exc.code}).") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise AIServiceError("Sem conexão com a internet ou API indisponível.") from exc
+
+
+def format_clean_description(text: str) -> str:
+    """Padroniza e embeleza a descrição garantindo Title Case e corrigindo caixas extremas."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return "Lançamento"
+
+    # Se a string veio totalmente em minúsculas ou totalmente em maiúsculas (e não é sigla curta como PIX ou IOF)
+    if cleaned.islower() or (cleaned.isupper() and len(cleaned) > 4):
+        words = cleaned.split()
+        low_words = {"de", "da", "do", "das", "dos", "e", "em", "para", "com", "no", "na", "nos", "nas"}
+        parts: List[str] = []
+        for i, w in enumerate(words):
+            wl = w.lower()
+            if i > 0 and wl in low_words:
+                parts.append(wl)
+            else:
+                parts.append(w.capitalize())
+        cleaned = " ".join(parts)
+    return cleaned
 
 
 class AIService:
@@ -136,6 +212,12 @@ class AIService:
             "- Um texto pode conter vários lançamentos; retorne um item para cada.\n"
             "- tipo: DESPESA (gastos, compras, contas pagas) ou RECEITA (salário, recebimentos).\n"
             "- valor sempre positivo, em número (ex.: 1234.56).\n"
+            "- descricao: Formate com elegância e padrão legível com iniciais maiúsculas "
+            "(Title Case em nomes de lojas, marcas e pessoas, ex.: 'Uber', 'Farmácia Nathaly', 'Mercado Unigran', 'Padaria Central').\n"
+            "- Higienize a descrição: corrija erros óbvios de digitação ou grafia informal do usuário "
+            "(ex.: 'farmarcia' -> 'Farmácia', 'ubr' -> 'Uber', 'salgado nathaly' -> 'Salgado Nathaly'). "
+            "Remova termos operacionais redundantes que indicam apenas a transação "
+            "(como 'saída', 'entrada', 'despesa', 'gasto', 'valor de', 'compras de', 'pago').\n"
             "- 'conta', 'cartao' e 'categoria' DEVEM ser exatamente um nome das listas abaixo; "
             "se nada corresponder com clareza, use null. Nunca invente nomes.\n"
             "- Se mencionar cartão de crédito (mesmo sem citar o nome do banco), preencha 'cartao' "
@@ -148,16 +230,89 @@ class AIService:
             f"Texto: {text}"
         )
 
-    def _generate(self, prompt: str, json_mode: bool = True) -> str:
+    def generate_financial_health_report(
+        self, summary_payload: Dict[str, Any]
+    ) -> FinancialHealthReport:
+        """Gera o diagnóstico de saúde financeira a partir do payload anonimizado."""
+        if not summary_payload:
+            raise AIServiceError("Sem dados financeiros para analisar.")
+        raw = self._generate(
+            self._build_health_prompt(summary_payload),
+            schema=_HEALTH_REPORT_SCHEMA,
+            temperature=0.3,
+        )
+        return self._parse_health_response(raw)
+
+    @staticmethod
+    def _build_health_prompt(payload: Dict[str, Any]) -> str:
+        return (
+            "Você é um consultor de finanças pessoais brasileiro, objetivo e consultivo.\n"
+            "Analise APENAS os dados agregados e anonimizados abaixo (valores em R$, mês ativo "
+            "comparado à média dos 2 meses anteriores) e responda em português do Brasil.\n"
+            "Regras:\n"
+            "- score_saude: inteiro 0-100 considerando poupança (meta 20%), essenciais (meta 50%), "
+            "estilo de vida (meta 30%), resultado líquido e estabilidade vs. meses anteriores.\n"
+            "- regra_50_30_20: use os percentuais reais fornecidos (não recalcule) e escreva em "
+            "'comentario' um diagnóstico curto de cada faixa.\n"
+            "- alertas_anomalias: apenas categorias com variação relevante (acima de ~20% vs. média) "
+            "ou participação desproporcional; cite categoria, variação e impacto em R$. "
+            "Lista vazia se não houver.\n"
+            "- projecao_fechamento: resumo de 1-3 frases sobre o fechamento do mês e o ritmo de gastos "
+            "(burn rate) com base nos dados; não invente valores ausentes.\n"
+            "- recomendacoes_praticas: 3 a 4 ações concretas, mensuráveis e priorizadas, "
+            "citando categorias e valores-alvo quando possível.\n"
+            "- Não invente dados, nomes, bancos ou instituições; não dê recomendação de produto específico.\n"
+            "- Tom direto, sem jargão, sem julgamento.\n"
+            f"Dados: {json.dumps(payload, ensure_ascii=False)}"
+        )
+
+    @staticmethod
+    def _parse_health_response(raw: str) -> FinancialHealthReport:
+        try:
+            envelope = json.loads(raw)
+            text = envelope["candidates"][0]["content"]["parts"][0]["text"]
+            data = json.loads(text)
+            rule = data["regra_50_30_20"]
+            report = FinancialHealthReport(
+                score_saude=max(0, min(100, int(data["score_saude"]))),
+                resumo=str(data.get("resumo", "")).strip(),
+                essenciais_pct=float(rule["essenciais_pct"]),
+                estilo_vida_pct=float(rule["estilo_vida_pct"]),
+                poupanca_pct=float(rule["poupanca_pct"]),
+                comentario_regra=str(rule.get("comentario", "")).strip(),
+                alertas_anomalias=[
+                    str(a).strip() for a in data.get("alertas_anomalias", []) if str(a).strip()
+                ],
+                projecao_fechamento=str(data.get("projecao_fechamento", "")).strip(),
+                recomendacoes_praticas=[
+                    str(r).strip() for r in data["recomendacoes_praticas"] if str(r).strip()
+                ],
+            )
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise AIServiceError("Resposta da IA em formato inesperado.") from exc
+        if not report.recomendacoes_praticas:
+            raise AIServiceError("A IA não retornou recomendações.")
+        return report
+
+    def _generate(
+        self,
+        prompt: str,
+        json_mode: bool = True,
+        schema: Optional[Dict[str, Any]] = None,
+        temperature: float = 0,
+    ) -> str:
         if not self.is_configured:
             raise AIServiceError("Chave de API do Gemini não configurada.")
         payload: Dict[str, Any] = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0},
+            "generationConfig": {"temperature": temperature},
         }
         if json_mode:
             payload["generationConfig"].update(
-                {"responseMimeType": "application/json", "responseSchema": _RESPONSE_SCHEMA}
+                {
+                    "responseMimeType": "application/json",
+                    "responseSchema": schema or _RESPONSE_SCHEMA,
+                }
             )
         headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
         body = json.dumps(payload).encode("utf-8")
@@ -215,7 +370,7 @@ class AIService:
                 drafts.append(
                     TransactionDraft(
                         tipo=tipo,
-                        descricao=str(it.get("descricao", "")).strip() or "Lançamento",
+                        descricao=format_clean_description(str(it.get("descricao", ""))),
                         valor=round(valor, 2),
                         data=when,
                         conta=conta,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
 
@@ -10,6 +10,7 @@ from app.domain.services.ai_service import (
     AIContext,
     AIService,
     AIServiceError,
+    FinancialHealthReport,
     TransactionDraft,
 )
 
@@ -54,6 +55,34 @@ class AIParseWorker(QThread):
                 self._text, self._context
             )
             self.succeeded.emit(drafts)
+        except AIServiceError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001 - nunca deixar a thread morrer silenciosa
+            self.failed.emit(f"Erro inesperado: {exc}")
+
+
+class FinancialHealthWorker(QThread):
+    """Gera diagnóstico de saúde financeira com IA em background. Emite `succeeded(FinancialHealthReport)` ou `failed(str)`."""
+
+    succeeded = Signal(object)  # FinancialHealthReport
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        service: AIService,
+        payload: Dict[str, Any],
+        parent: Optional[object] = None,
+    ) -> None:
+        super().__init__(parent)  # type: ignore[arg-type]
+        self._service = service
+        self._payload = payload
+
+    def run(self) -> None:
+        try:
+            report: FinancialHealthReport = self._service.generate_financial_health_report(
+                self._payload
+            )
+            self.succeeded.emit(report)
         except AIServiceError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001 - nunca deixar a thread morrer silenciosa

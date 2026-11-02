@@ -152,6 +152,41 @@ class AccountFormDialog(QDialog):
         flags_row.addWidget(self.chk_fav)
         form.addRow("Opções:", flags_row)
 
+        # Seção Caixinha CDB / Liquidez Diária
+        cdb_box = QVBoxLayout()
+        cdb_box.setSpacing(6)
+        self.chk_cdb = QCheckBox("Rendimento Automático CDB / CDI (Liquidez Diária)")
+        self.chk_cdb.setStyleSheet("font-weight: 600; color: #8A2BE2;")
+        cdb_box.addWidget(self.chk_cdb)
+
+        cdb_params_row = QHBoxLayout()
+        cdb_params_row.setContentsMargins(22, 0, 0, 0)
+        cdb_params_row.setSpacing(10)
+        lbl_pct = QLabel("Rentabilidade:")
+        self.sp_percentual_cdi = QDoubleSpinBox()
+        self.sp_percentual_cdi.setRange(1.0, 500.0)
+        self.sp_percentual_cdi.setDecimals(1)
+        self.sp_percentual_cdi.setValue(100.0)
+        self.sp_percentual_cdi.setSuffix(" % do CDI")
+        self.sp_percentual_cdi.setEnabled(False)
+        lbl_cdb_hint = QLabel("Rende em dias úteis bancários (B3) baseado na taxa CDI do app")
+        lbl_cdb_hint.setObjectName("MutedText")
+
+        cdb_params_row.addWidget(lbl_pct)
+        cdb_params_row.addWidget(self.sp_percentual_cdi)
+        cdb_params_row.addWidget(lbl_cdb_hint)
+        cdb_params_row.addStretch()
+        cdb_box.addLayout(cdb_params_row)
+
+        self.chk_cdb.toggled.connect(self._on_cdb_toggled)
+
+        if self.existing and getattr(self.existing, "is_cdb", False):
+            self.chk_cdb.setChecked(True)
+            self.sp_percentual_cdi.setValue(float(getattr(self.existing, "percentual_cdi", 100.0) or 100.0))
+            self.sp_percentual_cdi.setEnabled(True)
+
+        form.addRow("Caixinha CDB:", cdb_box)
+
         root.addLayout(form)
 
         # Seletor de Ícone de Instituição Bancária
@@ -203,6 +238,14 @@ class AccountFormDialog(QDialog):
         if current is not None:
             self.selected_image_key = str(current.data(Qt.ItemDataRole.UserRole))
 
+    def _on_cdb_toggled(self, checked: bool) -> None:
+        self.sp_percentual_cdi.setEnabled(checked)
+        if checked:
+            for i in range(self.cb_categoria.count()):
+                if "invest" in self.cb_categoria.itemText(i).lower():
+                    self.cb_categoria.setCurrentIndex(i)
+                    break
+
     def _on_save(self) -> None:
         desc = self.ed_descricao.text().strip()
         if not desc:
@@ -213,7 +256,9 @@ class AccountFormDialog(QDialog):
 
         cat_id = str(self.cb_categoria.currentData() or "3")
         cat_text = self.cb_categoria.currentText().lower()
-        is_inv = "S" if "invest" in cat_text else "N"
+        is_inv = "S" if ("invest" in cat_text or self.chk_cdb.isChecked()) else "N"
+        tipo_rendimento = "CDB_CDI" if self.chk_cdb.isChecked() else "NENHUM"
+        pct_cdi = float(self.sp_percentual_cdi.value())
 
         if self.existing is None:
             self.account_repo.create_account(
@@ -230,6 +275,8 @@ class AccountFormDialog(QDialog):
                 profile_id=self.profile_id,
                 mes_inicial=self.mes,
                 ano_inicial=self.ano,
+                tipo_rendimento=tipo_rendimento,
+                percentual_cdi=pct_cdi,
             )
         else:
             self.account_repo.update_account(
@@ -244,6 +291,8 @@ class AccountFormDialog(QDialog):
                 fav=1 if self.chk_fav.isChecked() else 0,
                 image_key=self.selected_image_key,
                 profile_id=self.profile_id,
+                tipo_rendimento=tipo_rendimento,
+                percentual_cdi=pct_cdi,
             )
             self.account_repo.set_monthly_opening_balance(
                 account_id=self.existing.id,
@@ -573,18 +622,36 @@ class ContasView(QWidget):
                 tot_previsto += s.saldo_previsto
                 tot_cheque += s.cheque_especial
 
-            if s.investimento == "S":
+            if s.investimento == "S" or getattr(s, "is_cdb", False):
                 tot_invest += s.saldo_atual
 
             # 0: Conta com logo do banco
+            desc_text = s.descricao
+            if getattr(s, "is_cdb", False):
+                desc_text = f"{s.descricao}  [CDB {s.percentual_cdi:.0f}%]"
             it_desc = QTableWidgetItem(
-                get_bank_icon(s.image_key, size=24), s.descricao
+                get_bank_icon(s.image_key, size=24), desc_text
             )
+            if getattr(s, "is_cdb", False):
+                cdb_tooltip = (
+                    f"<b>{s.descricao}</b> — Caixinha CDB ({s.percentual_cdi:.0f}% do CDI)<br>"
+                    f"• <b>Capital Aportado:</b> {format_currency(s.saldo_aportado, s.currency)}<br>"
+                    f"• <b>Rendimento Acumulado:</b> +{format_currency(s.rendimento_acumulado, s.currency)}<br>"
+                    f"• <b>Saldo Atual com Juros:</b> {format_currency(s.saldo_atual, s.currency)}"
+                )
+                it_desc.setToolTip(cdb_tooltip)
             self.table.setItem(row, 0, it_desc)
 
             # 1: Categoria
-            it_cat = QTableWidgetItem(s.categoria_nome)
-            it_cat.setForeground(QColor("#7B8190"))
+            cat_text = s.categoria_nome
+            if getattr(s, "is_cdb", False):
+                cat_text = f"CDB {s.percentual_cdi:.0f}% CDI"
+            it_cat = QTableWidgetItem(cat_text)
+            if getattr(s, "is_cdb", False):
+                it_cat.setForeground(QColor("#8A2BE2"))
+                it_cat.setToolTip(f"Caixinha de rendimento automático ({s.percentual_cdi:.0f}% do CDI)")
+            else:
+                it_cat.setForeground(QColor("#7B8190"))
             self.table.setItem(row, 1, it_cat)
 
             # 2: Saldo Inicial
@@ -621,6 +688,11 @@ class ContasView(QWidget):
             it_cur.setForeground(
                 QColor(INCOME_GREEN if s.saldo_atual >= 0 else EXPENSE_RED)
             )
+            if getattr(s, "is_cdb", False):
+                it_cur.setToolTip(
+                    f"Aporte: {format_currency(s.saldo_aportado, s.currency)} | "
+                    f"Rendimento: +{format_currency(s.rendimento_acumulado, s.currency)}"
+                )
             self.table.setItem(row, 5, it_cur)
 
             # 6: Saldo Previsto
