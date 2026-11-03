@@ -647,7 +647,7 @@ class FerramentasView(QWidget):
         )
         self.cb_loan_account.addItem("Sem movimentar conta", None)
 
-        btn_add = QPushButton("+ Registrar Empréstimo")
+        btn_add = QPushButton("Registrar Empréstimo")
         btn_add.setObjectName("PrimaryButton")
         btn_add.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         btn_add.clicked.connect(self._add_loan)
@@ -736,7 +736,7 @@ class FerramentasView(QWidget):
         self.ed_note_title.setPlaceholderText("Título da anotação financeira...")
         self.ed_note_body = QLineEdit()
         self.ed_note_body.setPlaceholderText("Conteúdo ou lembrete...")
-        btn_add_note = QPushButton("+ Salvar Nota")
+        btn_add_note = QPushButton("Salvar Nota")
         btn_add_note.setObjectName("PrimaryButton")
         btn_add_note.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         btn_add_note.clicked.connect(self._add_note)

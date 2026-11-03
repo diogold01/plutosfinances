@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
 
 from app.config.app_settings import FONTS_DIR
@@ -82,7 +82,7 @@ def build_stylesheet(palette: ThemePalette) -> str:
     """Gera a folha de estilo QSS completa do Plutos inspirada no protótipo de redesign."""
     p = palette
     return f"""
-    QMainWindow, QDialog {{
+    QMainWindow, QDialog, QStackedWidget {{
         background-color: {p.app_background};
         color: {p.text_primary};
     }}
@@ -553,9 +553,11 @@ def build_stylesheet(palette: ThemePalette) -> str:
         min-height: 18px;
     }}
     QTabWidget::pane {{
-        border: 1px solid {p.border_subtle};
-        border-radius: 12px;
-        background-color: {p.surface_card};
+        border: none;
+        background-color: transparent;
+    }}
+    QTabWidget, QTabWidget > QWidget {{
+        background-color: transparent;
     }}
     QTabBar::tab {{
         background-color: transparent;
@@ -610,8 +612,10 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.border_subtle};
         margin: 4px 6px;
     }}
-    QScrollArea {{
+    QScrollArea,
+    QScrollArea > QWidget#qt_scrollarea_viewport {{
         background-color: transparent;
+        background: transparent;
         border: none;
     }}
     QScrollBar:vertical {{
@@ -766,6 +770,26 @@ def build_stylesheet(palette: ThemePalette) -> str:
 def apply_app_theme(app: QApplication, mode: str) -> ThemePalette:
     """Aplica a folha de estilo QSS do tema selecionado ('light' ou 'dark') na aplicação."""
     palette = ThemePalette.for_mode(mode)
+    
+    # Sincroniza a paleta nativa do Qt (QPalette) para que viewports de QScrollArea,
+    # QTabWidget e containers genéricos usem o fundo correto e nunca o cinza/branco (#F3F3F3) nativo do Windows.
+    qpal = app.palette()
+    bg = QColor(palette.app_background)
+    tx = QColor(palette.text_primary)
+    sf = QColor(palette.surface_card)
+    is_dark = mode.lower() == "dark"
+
+    qpal.setColor(QPalette.ColorRole.Window, bg)
+    qpal.setColor(QPalette.ColorRole.WindowText, tx)
+    qpal.setColor(QPalette.ColorRole.Base, sf if is_dark else bg)
+    qpal.setColor(QPalette.ColorRole.AlternateBase, bg)
+    qpal.setColor(QPalette.ColorRole.ToolTipBase, sf)
+    qpal.setColor(QPalette.ColorRole.ToolTipText, tx)
+    qpal.setColor(QPalette.ColorRole.Text, tx)
+    qpal.setColor(QPalette.ColorRole.Button, sf if is_dark else QColor("#FFFFFF"))
+    qpal.setColor(QPalette.ColorRole.ButtonText, tx)
+    app.setPalette(qpal)
+
     app.setStyleSheet(build_stylesheet(palette))
     return palette
 

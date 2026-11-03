@@ -27,7 +27,7 @@ def test_configuracoes_hub_navigation_and_tabs(tmp_path: Path, monkeypatch) -> N
         hub = win.config_hub_view
 
         # 2. Testa troca de abas internas
-        assert hub.tabs.count() == 4
+        assert hub.tabs.count() == 5
         hub.select_tab("open_finance")
         assert hub.tabs.currentIndex() == 1
 
@@ -36,6 +36,9 @@ def test_configuracoes_hub_navigation_and_tabs(tmp_path: Path, monkeypatch) -> N
 
         hub.select_tab("ia")
         assert hub.tabs.currentIndex() == 3
+
+        hub.select_tab("investimentos")
+        assert hub.tabs.currentIndex() == 4
 
         hub.select_tab("banco")
         assert hub.tabs.currentIndex() == 0

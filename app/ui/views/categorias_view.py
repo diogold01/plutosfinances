@@ -145,7 +145,7 @@ class CategoriasView(QWidget):
         btns_row = QHBoxLayout()
         btns_row.setSpacing(8)
 
-        self.btn_new_sub = QPushButton("+ Nova Subcategoria")
+        self.btn_new_sub = QPushButton("Nova Subcategoria")
         self.btn_new_sub.setObjectName("SecondaryButton")
         self.btn_new_sub.setIcon(get_line_icon("plus", size=14))
         self.btn_new_sub.clicked.connect(self._on_new_subcategory)
@@ -160,7 +160,7 @@ class CategoriasView(QWidget):
         self.btn_delete.setIcon(get_line_icon("trash", size=14))
         self.btn_delete.clicked.connect(self._on_delete_selected)
 
-        self.btn_new_cat = QPushButton("+ Nova Categoria")
+        self.btn_new_cat = QPushButton("Nova Categoria")
         self.btn_new_cat.setObjectName("PrimaryButton")
         self.btn_new_cat.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         self.btn_new_cat.clicked.connect(self._on_new_category)

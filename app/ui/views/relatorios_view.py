@@ -37,7 +37,7 @@ from app.domain.services.analytics_service import AnalyticsService, FinancialHea
 from app.ui.ai_worker import FinancialHealthWorker
 from app.ui.bank_icons import create_color_badge_icon
 from app.ui.components import Badge, EmptyStateWidget, KpiCard
-from app.ui.icons import get_line_pixmap
+from app.ui.icons import get_line_icon, get_line_pixmap
 from app.ui.style_manager import format_currency
 
 
@@ -77,20 +77,20 @@ class FinancialHealthPanel(QWidget):
 
         content = QWidget()
         self.content_lay = QVBoxLayout(content)
-        self.content_lay.setContentsMargins(4, 4, 4, 16)
-        self.content_lay.setSpacing(14)
+        self.content_lay.setContentsMargins(0, 0, 0, 16)
+        self.content_lay.setSpacing(10)
 
         # 1. Header do Diagnóstico IA
         header_card = QFrame()
         header_card.setObjectName("CardSurface")
         h_lay = QHBoxLayout(header_card)
-        h_lay.setContentsMargins(20, 16, 20, 16)
-        h_lay.setSpacing(16)
+        h_lay.setContentsMargins(18, 12, 18, 12)
+        h_lay.setSpacing(14)
 
         title_col = QVBoxLayout()
-        title_col.setSpacing(4)
+        title_col.setSpacing(2)
         lbl_head = QLabel("Diagnóstico de Saúde Financeira com IA")
-        lbl_head.setStyleSheet("font-size: 16px; font-weight: 700;")
+        lbl_head.setStyleSheet("font-size: 15px; font-weight: 700;")
         lbl_sub = QLabel(
             "Análise preditiva por IA com Score, proporção 50-30-20, detecção de anomalias e ações práticas."
         )
@@ -101,13 +101,13 @@ class FinancialHealthPanel(QWidget):
 
         action_col = QVBoxLayout()
         action_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        action_col.setSpacing(6)
+        action_col.setSpacing(4)
 
         self.btn_generate = QPushButton("✨ Gerar Diagnóstico IA")
         self.btn_generate.setObjectName("PrimaryButton")
         self.btn_generate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_generate.setMinimumHeight(38)
-        self.btn_generate.setMinimumWidth(210)
+        self.btn_generate.setMinimumHeight(34)
+        self.btn_generate.setMinimumWidth(190)
         self.btn_generate.clicked.connect(self._on_generate_clicked)
 
         self.lbl_status = QLabel("")
@@ -124,17 +124,17 @@ class FinancialHealthPanel(QWidget):
         self.empty_card = QFrame()
         self.empty_card.setObjectName("CardSurface")
         e_lay = QVBoxLayout(self.empty_card)
-        e_lay.setContentsMargins(28, 30, 28, 30)
-        e_lay.setSpacing(12)
+        e_lay.setContentsMargins(20, 20, 20, 20)
+        e_lay.setSpacing(10)
         e_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_e_ico = QLabel()
-        lbl_e_ico.setPixmap(get_line_pixmap("sparkles", color="#E5603D", size=32))
+        lbl_e_ico.setPixmap(get_line_pixmap("sparkles", color="#E5603D", size=28))
         lbl_e_ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
         e_lay.addWidget(lbl_e_ico)
 
         self.lbl_empty_title = QLabel("Pronto para diagnosticar suas finanças")
-        self.lbl_empty_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.lbl_empty_title.setStyleSheet("font-size: 15px; font-weight: 600;")
         self.lbl_empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         e_lay.addWidget(self.lbl_empty_title)
 
@@ -561,12 +561,25 @@ class RelatoriosView(QWidget):
         header_row.addStretch()
 
         filter_box = QHBoxLayout()
-        filter_box.setSpacing(8)
+        filter_box.setSpacing(10)
+
+        # Botão de Destaque Imediato da IA (Acesso Direto com 1 Clique)
+        self.btn_toggle_ai_report = QPushButton("Diagnóstico IA")
+        self.btn_toggle_ai_report.setObjectName("SecondaryButton")
+        self.btn_toggle_ai_report.setIcon(get_line_icon("sparkle", size=14, color="#E5603D"))
+        self.btn_toggle_ai_report.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_toggle_ai_report.setMinimumHeight(32)
+        self.btn_toggle_ai_report.setStyleSheet(
+            "QPushButton { font-weight: 600; padding: 0 14px; border-radius: 8px; }"
+        )
+        self.btn_toggle_ai_report.setToolTip("Alternar entre Diagnóstico com IA e Relatórios em Tabela")
+        self.btn_toggle_ai_report.clicked.connect(self._toggle_ai_report_mode)
+
         lbl_tipo = QLabel("Tipo de Relatório:")
         lbl_tipo.setStyleSheet("font-weight: 500;")
 
         self.cb_report_type = QComboBox()
-        self.cb_report_type.setMinimumWidth(300)
+        self.cb_report_type.setMinimumWidth(280)
         self.cb_report_type.addItem("Despesas por Categoria", "DESP_CAT")
         self.cb_report_type.addItem(
             "Despesas por Categoria e Subcategoria", "DESP_SUB"
@@ -588,6 +601,7 @@ class RelatoriosView(QWidget):
 
         filter_box.addWidget(lbl_tipo)
         filter_box.addWidget(self.cb_report_type)
+        filter_box.addWidget(self.btn_toggle_ai_report)
         header_row.addLayout(filter_box)
         root.addLayout(header_row)
 
@@ -653,11 +667,31 @@ class RelatoriosView(QWidget):
         card_lay.addWidget(self.stack, stretch=1)
         root.addWidget(table_card, stretch=1)
 
+    def _toggle_ai_report_mode(self) -> None:
+        """Alterna diretamente entre o Diagnóstico IA e o relatório em tabela."""
+        current_type = str(self.cb_report_type.currentData() or "DESP_CAT")
+        if current_type == "AI_HEALTH":
+            idx = self.cb_report_type.findData("DESP_CAT")
+        else:
+            idx = self.cb_report_type.findData("AI_HEALTH")
+        if idx >= 0:
+            self.cb_report_type.setCurrentIndex(idx)
+
     def refresh_data(self) -> None:
         profile_id, month, year, _search = self.get_context()
         mode = self.db.settings.date_reference_mode
         rtype = str(self.cb_report_type.currentData() or "DESP_CAT")
         pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+
+        # Atualiza o botão de alternância do cabeçalho
+        if rtype == "AI_HEALTH":
+            self.btn_toggle_ai_report.setText("Ver Tabelas")
+            self.btn_toggle_ai_report.setIcon(get_line_icon("list", size=14))
+            self.btn_toggle_ai_report.setToolTip("Retornar à visualização de tabelas e categorias")
+        else:
+            self.btn_toggle_ai_report.setText("Diagnóstico IA")
+            self.btn_toggle_ai_report.setIcon(get_line_icon("sparkle", size=14, color="#E5603D"))
+            self.btn_toggle_ai_report.setToolTip("Visualizar Diagnóstico de Saúde Financeira com IA")
 
         if rtype == "AI_HEALTH":
             health_data = self.analytics.get_financial_health_summary(

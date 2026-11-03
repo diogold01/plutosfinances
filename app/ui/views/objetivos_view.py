@@ -266,7 +266,7 @@ class ObjetivosView(QWidget):
         header_row.addLayout(title_col)
         header_row.addStretch()
 
-        self.btn_new = QPushButton("+ Novo Objetivo")
+        self.btn_new = QPushButton("Novo Objetivo")
         self.btn_new.setObjectName("PrimaryButton")
         self.btn_new.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         self.btn_new.clicked.connect(self.open_new_goal_dialog)
@@ -388,7 +388,7 @@ class ObjetivosView(QWidget):
         r_head.addLayout(r_title_col)
         r_head.addStretch()
 
-        self.btn_add_dep = QPushButton("+ Aporte")
+        self.btn_add_dep = QPushButton("Aporte")
         self.btn_add_dep.setObjectName("SecondaryButton")
         self.btn_add_dep.setIcon(get_line_icon("plus", size=14))
         self.btn_add_dep.clicked.connect(self.open_add_deposit_dialog)
@@ -418,7 +418,7 @@ class ObjetivosView(QWidget):
         self.empty_widget = EmptyStateWidget(
             title="Nenhum objetivo cadastrado",
             subtitle="Defina sua primeira meta financeira para acompanhar prazos e depósitos.",
-            action_label="+ Novo Objetivo",
+            action_label="Novo Objetivo",
             on_action=self.open_new_goal_dialog,
             icon_name="target",
         )

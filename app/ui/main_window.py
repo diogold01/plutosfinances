@@ -180,9 +180,10 @@ class MainWindow(QMainWindow):
 
         # Cabeçalho da Sidebar: Logo Plutos
         logo_container = QWidget()
-        logo_h = QHBoxLayout(logo_container)
-        logo_h.setContentsMargins(4, 0, 4, 12)
-        logo_h.setSpacing(10)
+        self.logo_h = QHBoxLayout(logo_container)
+        self.logo_h.setContentsMargins(4, 0, 4, 12)
+        self.logo_h.setSpacing(10)
+        self.logo_h.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.lbl_logo_badge = QLabel("P")
         self.lbl_logo_badge.setObjectName("BrandBadge")
@@ -191,6 +192,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_logo_title = QLabel("Plutos")
         self.lbl_logo_title.setObjectName("BrandTitle")
+        self.lbl_logo_title.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_hamburger = QPushButton()
         self.btn_hamburger.setObjectName("IconButton")
@@ -199,10 +201,10 @@ class MainWindow(QMainWindow):
         self.btn_hamburger.setToolTip("Recolher / Expandir menu lateral")
         self.btn_hamburger.clicked.connect(self.toggle_sidebar)
 
-        logo_h.addWidget(self.lbl_logo_badge)
-        logo_h.addWidget(self.lbl_logo_title)
-        logo_h.addStretch()
-        logo_h.addWidget(self.btn_hamburger)
+        self.logo_h.addWidget(self.lbl_logo_badge)
+        self.logo_h.addWidget(self.lbl_logo_title)
+        self.logo_h.addStretch()
+        self.logo_h.addWidget(self.btn_hamburger)
         s_lay.addWidget(logo_container)
 
         # Lista de Itens de Navegação com Scroll transparente
@@ -233,7 +235,8 @@ class MainWindow(QMainWindow):
 
         # Alternador de tema no rodapé da Sidebar
         self.btn_theme_toggle_side = QPushButton()
-        self.btn_theme_toggle_side.setObjectName("GhostButton")
+        self.btn_theme_toggle_side.setObjectName("NavButton")
+        self.btn_theme_toggle_side.setIconSize(QSize(18, 18))
         self.btn_theme_toggle_side.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_theme_toggle_side.clicked.connect(self.toggle_theme_mode)
         s_lay.addWidget(self.btn_theme_toggle_side)
@@ -399,6 +402,8 @@ class MainWindow(QMainWindow):
 
         self._init_views()
         self._update_theme_button_label()
+        if getattr(self.db.settings, "sidebar_collapsed", False):
+            self.toggle_sidebar()
 
     def _init_views(self) -> None:
         self.dashboard_view = DashboardView(
@@ -685,12 +690,31 @@ class MainWindow(QMainWindow):
     def toggle_sidebar(self) -> None:
         collapsed = self.sidebar_frame.width() > 80
         self.sidebar_frame.setFixedWidth(56 if collapsed else 216)
+        s_lay = self.sidebar_frame.layout()
+        if isinstance(s_lay, QVBoxLayout):
+            s_lay.setContentsMargins(6 if collapsed else 12, 16, 6 if collapsed else 12, 12)
+        if hasattr(self, "logo_h"):
+            self.logo_h.setContentsMargins(0 if collapsed else 4, 0, 0 if collapsed else 4, 12)
         for key, label in self.NAV_ITEMS:
             btn = self._nav_buttons[key]
             btn.setText("" if collapsed else f"  {label}")
             btn.setToolTip(label if collapsed else "")
+        self.lbl_logo_badge.setVisible(not collapsed)
         self.lbl_logo_title.setVisible(not collapsed)
-        self.btn_theme_toggle_side.setVisible(not collapsed)
+        
+        # Mantém o botão de tema sempre visível no rodapé
+        self.btn_theme_toggle_side.setVisible(True)
+        is_dark = self.db.settings.theme_mode.lower() == "dark"
+        theme_tip = "Alternar para Modo Claro" if is_dark else "Alternar para Modo Escuro"
+        if collapsed:
+            self.btn_theme_toggle_side.setText("")
+            self.btn_theme_toggle_side.setToolTip(theme_tip)
+        else:
+            self.btn_theme_toggle_side.setText("  Modo Claro" if is_dark else "  Modo Escuro")
+            self.btn_theme_toggle_side.setToolTip("")
+        self.btn_theme_toggle_side.setMinimumSize(0, 36)
+        self.btn_theme_toggle_side.setMaximumSize(16777215, 36)
+
         self.db.settings.sidebar_collapsed = collapsed
         self.db.settings.save()
 
@@ -715,10 +739,21 @@ class MainWindow(QMainWindow):
         self.btn_theme_toggle.setToolTip(
             "Alternar para Tema Claro" if is_dark else "Alternar para Tema Escuro"
         )
-        self.btn_theme_toggle_side.setIcon(get_line_icon(theme_icon, color=pal.text_secondary, size=16))
-        self.btn_theme_toggle_side.setText(
-            "  Modo Claro" if is_dark else "  Modo Escuro"
-        )
+        self.btn_theme_toggle_side.setIcon(get_line_icon(theme_icon, color=pal.text_secondary, size=18))
+        self.btn_theme_toggle_side.setIconSize(QSize(18, 18))
+        collapsed = self.sidebar_frame.width() <= 70
+        if collapsed:
+            self.btn_theme_toggle_side.setText("")
+            self.btn_theme_toggle_side.setToolTip(
+                "Alternar para Modo Claro" if is_dark else "Alternar para Modo Escuro"
+            )
+        else:
+            self.btn_theme_toggle_side.setText(
+                "  Modo Claro" if is_dark else "  Modo Escuro"
+            )
+            self.btn_theme_toggle_side.setToolTip("")
+        self.btn_theme_toggle_side.setMinimumSize(0, 36)
+        self.btn_theme_toggle_side.setMaximumSize(16777215, 36)
 
     def _show_quick_add_menu(self) -> None:
         menu = QMenu(self)

@@ -83,8 +83,8 @@ class OpenFinanceSyncWorker(QThread):
                     "Nenhuma instituição bancária cadastrada no Plutos.\n\n"
                     "Para sincronizar:\n"
                     "1. Vá em Configurações -> Open Finance (Pluggy).\n"
-                    "2. Clique em '+ Conectar Novo Banco' para autorizar seu banco no navegador.\n"
-                    "3. Clique em '+ Adicionar Conexão por ID' para vincular o ID gerado."
+                    "2. Clique em 'Conectar Novo Banco' para autorizar seu banco no navegador.\n"
+                    "3. Clique em 'Adicionar Conexão por ID' para vincular o ID gerado."
                 )
                 return
 

@@ -186,9 +186,9 @@ class ThemePalette:
             surface_header="#1B1E24",    # --sf: Topbar escuro
             surface_sidebar="#1B1E24",   # --sf: Sidebar escuro
             border_subtle="#2A2E36",     # --ln: Linhas divisórias escuras
-            text_primary="#ECEEF2",      # --tx: Texto primário escuro
-            text_secondary="#8B92A1",    # --mu: Texto secundário escuro
-            text_muted="#8B92A1",        # --mu: Textos atenuados escuro
+            text_primary="#ECEEF2",      # --tx: Texto primário escuro (contraste 11.2:1)
+            text_secondary="#9CA3AF",    # --mu: Texto secundário escuro legível (contraste 5.8:1 WCAG AA)
+            text_muted="#9CA3AF",        # --mu: Textos atenuados escuro legível (contraste 5.8:1 WCAG AA)
             income_green="#3CC08B",      # --gr: Verde vibrante para tema escuro
             income_badge_bg="#1A3328",   # Fundo suave verde no escuro
             expense_red="#EF6A6A",       # --rd: Vermelho vibrante no escuro

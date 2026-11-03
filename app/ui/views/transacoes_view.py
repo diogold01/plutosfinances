@@ -1394,15 +1394,46 @@ class TransacoesView(QWidget):
         current_data = self.cb_filter_source.currentData()
         self.cb_filter_source.blockSignals(True)
         self.cb_filter_source.clear()
+
+        accounts = self.account_repo.list_accounts(profile_id)
+        cards = self.card_service.list_cards(profile_id)
+
+        # Encontra a Conta Corrente prioritária (ou primeira conta bancária ativa)
+        primary_acc = None
+        other_accounts = []
+        for acc in accounts:
+            if primary_acc is None and "corrente" in acc.name.lower():
+                primary_acc = acc
+            else:
+                other_accounts.append(acc)
+        if primary_acc is None and other_accounts:
+            primary_acc = other_accounts.pop(0)
+
+        # 1. Primeira Opção e Padrão: Conta Corrente
+        if primary_acc:
+            self.cb_filter_source.addItem(f"Conta: {primary_acc.name}", f"ACC:{primary_acc.id}")
+
+        # 2. Visões Agrupadas
         self.cb_filter_source.addItem("Todas as Contas e Cartões", "ALL")
         self.cb_filter_source.addItem("Apenas Contas Bancárias (Caixa)", "ACCOUNTS_ONLY")
-        for acc in self.account_repo.list_accounts(profile_id):
+
+        # 3. Demais Contas Bancárias
+        for acc in other_accounts:
             self.cb_filter_source.addItem(f"Conta: {acc.name}", f"ACC:{acc.id}")
-        for card in self.card_service.list_cards(profile_id):
+
+        # 4. Cartões de Crédito
+        for card in cards:
             self.cb_filter_source.addItem(f"Cartão: {card.nome}", f"CARD:{card.id}")
-        idx = self.cb_filter_source.findData(current_data)
+
+        idx = -1
+        if current_data is not None:
+            idx = self.cb_filter_source.findData(current_data)
+
         if idx >= 0:
             self.cb_filter_source.setCurrentIndex(idx)
+        else:
+            self.cb_filter_source.setCurrentIndex(0)
+
         self.cb_filter_source.blockSignals(False)
 
     def refresh_data(self) -> None:

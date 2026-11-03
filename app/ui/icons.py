@@ -51,6 +51,12 @@ SVG_PATHS: Dict[str, str] = {
     "utensils": "M18 2v20M21 2v6a3 3 0 0 1-3 3M18 5h3M6 2v7a3 3 0 0 1-3 3M6 2v20M3 2v7a3 3 0 0 0 3 3",
     "zap": "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
     "wallet": "M21 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zm-5 5h.01",
+    "lock": "M7 11V7a5 5 0 0 1 10 0v4M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z",
+    "refresh_cw": "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
+    "download": "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+    "eye": "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+    "eye_off": "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22",
+    "pencil": "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
 }
 
 _PIXMAP_CACHE: Dict[tuple, QPixmap] = {}
@@ -78,7 +84,13 @@ def get_line_pixmap(
     if cache_key in _PIXMAP_CACHE:
         return _PIXMAP_CACHE[cache_key]
 
-    path_d = SVG_PATHS.get(name, SVG_PATHS["plus"])
+    path_d = SVG_PATHS.get(name)
+    if not path_d:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        _PIXMAP_CACHE[cache_key] = pixmap
+        return pixmap
+
     svg_xml = build_svg_xml(path_d, color, size, stroke_width)
 
     # Renderiza em resolução 2x para garantir nitidez em telas de alta densidade

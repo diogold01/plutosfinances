@@ -224,31 +224,29 @@ def test_account_dialog_cdb_controls(qapp, tmp_path) -> None:
 def test_configuracoes_cdi_rate_update(qapp, tmp_path) -> None:
     from app.database.connection_manager import ConnectionManager
     from app.config.app_settings import AppSettings
-    from app.database.backup_service import BackupSchedulerService
-    from app.ui.views.configuracoes_view import ConfiguracoesView
+    from app.ui.views.configuracoes_hub_view import InvestimentosConfigTab
 
     db_path = tmp_path / "test_cfg.sqlite"
     settings = AppSettings.load(tmp_path / "settings.json")
     settings.cdi_taxa_anual = 10.75
     db = ConnectionManager(settings=settings, auto_connect=False)
     db.create_new_database(db_path)
-    bkp = BackupSchedulerService(db)
 
     env_changed = False
     def on_change():
         nonlocal env_changed
         env_changed = True
 
-    view = ConfiguracoesView(db, bkp, on_change)
-    assert hasattr(view, "sp_cdi_taxa")
-    assert view.sp_cdi_taxa.value() == 10.75
+    tab = InvestimentosConfigTab(db, on_change)
+    assert hasattr(tab, "sp_cdi_taxa")
+    assert tab.sp_cdi_taxa.value() == 10.75
 
     # Altera taxa e salva
-    view.sp_cdi_taxa.setValue(12.25)
-    view._on_save_cdi_rate()
+    tab.sp_cdi_taxa.setValue(12.25)
+    tab._on_save_cdi_rate()
     assert db.settings.cdi_taxa_anual == 12.25
     assert env_changed is True
-    view.close()
+    tab.close()
 
 
 def test_contas_view_cdb_rendering(qapp, tmp_path) -> None:
