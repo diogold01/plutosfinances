@@ -25,17 +25,18 @@ class GeminiButton(QPushButton):
         self.setIconSize(QSize(30, 30))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Lançamento Inteligente com IA  ·  Ctrl+K")
-        if NEW_SPARKLE_TILE.exists():
-            self.setIcon(QIcon(str(NEW_SPARKLE_TILE)))
-        elif NEW_SPARKLE_ICON.exists():
+        if NEW_SPARKLE_ICON.exists():
             self.setIcon(QIcon(str(NEW_SPARKLE_ICON)))
+        elif NEW_SPARKLE_TILE.exists():
+            self.setIcon(QIcon(str(NEW_SPARKLE_TILE)))
         elif GEMINI_ICON_PATH.exists():
             self.setIcon(QIcon(str(GEMINI_ICON_PATH)))
         else:
             self.setText("✦")
         self.setFlat(True)
         self.setStyleSheet(
-            "QPushButton#GeminiButton { background: transparent; border: none; border-radius: 18px; padding: 0; }"
+            "QPushButton#GeminiButton { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 2px; }"
+            "QPushButton#GeminiButton:hover { background: rgba(229, 96, 61, 0.15); border: 1px solid rgba(229, 96, 61, 0.35); }"
         )
         self._glow = QGraphicsDropShadowEffect(self)
         self._glow.setOffset(0, 0)

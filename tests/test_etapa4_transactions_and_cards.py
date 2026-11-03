@@ -1104,10 +1104,14 @@ def test_transacoes_view_redesign_components_and_empty_state(tmp_path: Path) -> 
 
         # 4. Cria lançamento e valida transição para a tabela com Badge pill
         tx = TransactionService(conn)
+        acc_repo = AccountRepository(conn)
+        accounts = acc_repo.list_accounts("1")
+        acc_id = accounts[0].id if accounts else None
         tx.create_expense(
             descricao="Café",
             valor=12.50,
             data_vencimento=date(2026, 10, 15),
+            id_conta=acc_id,
             profile_id="1",
         )
         view.refresh_data()

@@ -181,7 +181,7 @@ class TagsView(QWidget):
         self.btn_delete.setIcon(get_line_icon("trash", size=14))
         self.btn_delete.clicked.connect(self._on_delete_selected)
 
-        self.btn_new = QPushButton("+ Nova Tag")
+        self.btn_new = QPushButton("Nova Tag")
         self.btn_new.setObjectName("PrimaryButton")
         self.btn_new.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         self.btn_new.clicked.connect(self._on_new_tag)
@@ -220,7 +220,7 @@ class TagsView(QWidget):
         self.empty_widget = EmptyStateWidget(
             title="Nenhuma tag cadastrada",
             subtitle="Crie tags para categorizar despesas e receitas por projetos, viagens ou eventos.",
-            action_label="+ Nova Tag",
+            action_label="Nova Tag",
             on_action=self._on_new_tag,
             icon_name="file_text",
         )

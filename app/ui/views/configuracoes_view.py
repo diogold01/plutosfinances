@@ -74,7 +74,7 @@ class ConfiguracoesView(QWidget):
 
         content = QWidget()
         root = QVBoxLayout(content)
-        root.setContentsMargins(24, 20, 24, 20)
+        root.setContentsMargins(24, 20, 24, 32)
         root.setSpacing(16)
 
         title_box = QVBoxLayout()
@@ -154,7 +154,7 @@ class ConfiguracoesView(QWidget):
         db_btns = QHBoxLayout()
         db_btns.setSpacing(8)
 
-        btn_new_db = QPushButton("+ Novo Banco de Dados")
+        btn_new_db = QPushButton("Novo Banco de Dados")
         btn_new_db.setObjectName("PrimaryButton")
         btn_new_db.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         btn_new_db.clicked.connect(self.action_create_new_database)
@@ -284,7 +284,7 @@ class ConfiguracoesView(QWidget):
         prof_btns = QHBoxLayout()
         prof_btns.setSpacing(8)
 
-        btn_new_prof = QPushButton("+ Novo Perfil")
+        btn_new_prof = QPushButton("Novo Perfil")
         btn_new_prof.setObjectName("PrimaryButton")
         btn_new_prof.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         btn_new_prof.clicked.connect(self._on_new_profile)
@@ -293,12 +293,18 @@ class ConfiguracoesView(QWidget):
         btn_activate_prof.setObjectName("SecondaryButton")
         btn_activate_prof.clicked.connect(self._on_activate_selected_profile)
 
+        btn_edit_prof = QPushButton("Editar Perfil")
+        btn_edit_prof.setObjectName("SecondaryButton")
+        btn_edit_prof.setIcon(get_line_icon("pencil", size=14))
+        btn_edit_prof.clicked.connect(self._on_edit_selected_profile)
+
         btn_pin = QPushButton("Configurar PIN")
         btn_pin.setObjectName("SecondaryButton")
         btn_pin.setIcon(get_line_icon("lock", size=14))
         btn_pin.clicked.connect(self._on_configure_pin)
 
         prof_btns.addWidget(btn_activate_prof)
+        prof_btns.addWidget(btn_edit_prof)
         prof_btns.addWidget(btn_pin)
         prof_btns.addWidget(btn_new_prof)
         prof_head.addLayout(prof_btns)
@@ -316,7 +322,8 @@ class ConfiguracoesView(QWidget):
         self.table_profiles.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_profiles.verticalHeader().setVisible(False)
         self.table_profiles.verticalHeader().setDefaultSectionSize(36)
-        self.table_profiles.setMaximumHeight(130)
+        self.table_profiles.setMinimumHeight(140)
+        self.table_profiles.doubleClicked.connect(lambda _: self._on_edit_selected_profile())
         ph = self.table_profiles.horizontalHeader()
         ph.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         ph.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -325,58 +332,6 @@ class ConfiguracoesView(QWidget):
         prof_lay.addWidget(self.table_profiles)
 
         root.addWidget(prof_card)
-
-        # ------------------------------------------------------------------ #
-        # Card 4: Parâmetros de Investimento & Rendimento (CDB / CDI)
-        # ------------------------------------------------------------------ #
-        cdi_card = QFrame()
-        cdi_card.setObjectName("CardSurface")
-        cdi_lay = QVBoxLayout(cdi_card)
-        cdi_lay.setContentsMargins(20, 18, 20, 18)
-        cdi_lay.setSpacing(12)
-
-        cdi_head = QHBoxLayout()
-        cdi_t_col = QVBoxLayout()
-        cdi_t_col.setSpacing(2)
-        lbl_cdi_title = QLabel("Parâmetros de Investimento & CDI")
-        lbl_cdi_title.setFont(f_bold)
-        lbl_cdi_sub = QLabel("Taxa CDI anual de referência para o cálculo de rendimento automático das Caixinhas (100% offline)")
-        lbl_cdi_sub.setObjectName("MutedText")
-        cdi_t_col.addWidget(lbl_cdi_title)
-        cdi_t_col.addWidget(lbl_cdi_sub)
-        cdi_head.addLayout(cdi_t_col)
-        cdi_head.addStretch()
-        cdi_lay.addLayout(cdi_head)
-
-        cdi_form_row = QHBoxLayout()
-        cdi_form_row.setSpacing(12)
-
-        lbl_taxa = QLabel("Taxa CDI Padrão Anual:")
-        lbl_taxa.setStyleSheet("font-weight: 600;")
-        self.sp_cdi_taxa = QDoubleSpinBox()
-        self.sp_cdi_taxa.setRange(0.0, 100.0)
-        self.sp_cdi_taxa.setDecimals(2)
-        self.sp_cdi_taxa.setSingleStep(0.25)
-        self.sp_cdi_taxa.setSuffix(" % ao ano")
-        self.sp_cdi_taxa.setFixedWidth(160)
-        self.sp_cdi_taxa.setValue(float(getattr(self.db.settings, "cdi_taxa_anual", 10.75) or 10.75))
-
-        btn_save_cdi = QPushButton("Salvar Taxa CDI")
-        btn_save_cdi.setObjectName("PrimaryButton")
-        btn_save_cdi.setIcon(get_line_icon("check", size=14, color="#FFFFFF"))
-        btn_save_cdi.clicked.connect(self._on_save_cdi_rate)
-
-        self.lbl_cdi_feedback = QLabel("")
-        self.lbl_cdi_feedback.setStyleSheet("color: #17A05E; font-weight: 600;")
-
-        cdi_form_row.addWidget(lbl_taxa)
-        cdi_form_row.addWidget(self.sp_cdi_taxa)
-        cdi_form_row.addWidget(btn_save_cdi)
-        cdi_form_row.addWidget(self.lbl_cdi_feedback)
-        cdi_form_row.addStretch()
-        cdi_lay.addLayout(cdi_form_row)
-
-        root.addWidget(cdi_card)
         root.addStretch()
 
         scroll.setWidget(content)
@@ -636,6 +591,35 @@ class ConfiguracoesView(QWidget):
         self.profile_repo.set_active_profile(prof.id)
         self.refresh_data()
         self.on_environment_changed()
+
+    def _on_edit_selected_profile(self) -> None:
+        row = self.table_profiles.currentRow()
+        if row < 0 or row >= len(self._profiles):
+            QMessageBox.information(
+                self, "Selecione um Perfil", "Selecione um perfil na tabela para editar."
+            )
+            return
+        prof = self._profiles[row]
+        dlg = CategoryItemDialog(
+            "Editar Perfil Financeiro",
+            initial_name=prof.name,
+            initial_color=prof.color_hex,
+            parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_name = dlg.selected_name.strip()
+            if not new_name:
+                QMessageBox.warning(self, "Nome Inválido", "O nome do perfil não pode ser vazio.")
+                return
+            self.profile_repo.update_profile(
+                profile_id=prof.id,
+                name=new_name,
+                color_hex=dlg.selected_color,
+                currency=prof.currency,
+                archived=prof.archived,
+            )
+            self.refresh_data()
+            self.on_environment_changed()
 
     def _on_configure_pin(self) -> None:
         text, ok = QInputDialog.getText(

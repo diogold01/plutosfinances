@@ -28,7 +28,7 @@ if (-not $Version) {
     } catch {}
 }
 if (-not $Version) {
-    $Version = "1.3.1"
+    $Version = "1.3.3"
 }
 
 Write-Host "=================================================================" -ForegroundColor Cyan

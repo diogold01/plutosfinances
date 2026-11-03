@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -39,7 +40,7 @@ from app.ui.views.ferramentas_view import FerramentasView
 from app.ui.views.open_finance_dialog import OpenFinanceSyncDialog
 
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"]
-TAB_KEYS = ("banco", "open_finance", "ferramentas", "ia")
+TAB_KEYS = ("banco", "open_finance", "ferramentas", "ia", "investimentos")
 
 
 class AIConfigTab(QWidget):
@@ -364,12 +365,12 @@ class OpenFinanceConfigTab(QWidget):
         items_btns = QHBoxLayout()
         items_btns.setSpacing(8)
 
-        self.btn_add_item_by_id = QPushButton("+ Adicionar por ID")
+        self.btn_add_item_by_id = QPushButton("Adicionar por ID")
         self.btn_add_item_by_id.setObjectName("SecondaryButton")
         self.btn_add_item_by_id.setIcon(get_line_icon("plus", size=14))
         self.btn_add_item_by_id.clicked.connect(self._on_add_item_by_id)
 
-        self.btn_connect_bank = QPushButton("+ Conectar Novo Banco")
+        self.btn_connect_bank = QPushButton("Conectar Novo Banco")
         self.btn_connect_bank.setObjectName("PrimaryButton")
         self.btn_connect_bank.setIcon(get_line_icon("plus", size=14, color="#FFFFFF"))
         self.btn_connect_bank.clicked.connect(self._on_connect_new_bank)
@@ -719,6 +720,131 @@ class OpenFinanceConfigTab(QWidget):
             self.on_environment_changed()
 
 
+class InvestimentosConfigTab(QWidget):
+    """Aba de Parâmetros de Investimento & Rendimento (Caixinhas CDB / Taxa CDI)."""
+
+    def __init__(
+        self,
+        db: ConnectionManager,
+        on_environment_changed: Optional[Callable[[], None]] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.db = db
+        self.on_environment_changed = on_environment_changed
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        root = QVBoxLayout(content)
+        root.setContentsMargins(0, 12, 0, 32)
+        root.setSpacing(16)
+
+        cdi_card = QFrame()
+        cdi_card.setObjectName("CardSurface")
+        cdi_lay = QVBoxLayout(cdi_card)
+        cdi_lay.setContentsMargins(20, 18, 20, 18)
+        cdi_lay.setSpacing(14)
+
+        cdi_head = QHBoxLayout()
+        cdi_t_col = QVBoxLayout()
+        cdi_t_col.setSpacing(4)
+        lbl_cdi_title = QLabel("Parâmetros de Investimento & Rendimento Automático")
+        lbl_cdi_title.setStyleSheet("font-size: 16px; font-weight: 700;")
+        lbl_cdi_sub = QLabel(
+            "Configure a taxa CDI anual padrão utilizada para calcular o rendimento diário "
+            "composto das Caixinhas CDB (convenção 252 dias úteis B3 / Anbima, 100% offline)."
+        )
+        lbl_cdi_sub.setObjectName("MutedText")
+        lbl_cdi_sub.setWordWrap(True)
+        cdi_t_col.addWidget(lbl_cdi_title)
+        cdi_t_col.addWidget(lbl_cdi_sub)
+        cdi_head.addLayout(cdi_t_col)
+        cdi_head.addStretch()
+        cdi_lay.addLayout(cdi_head)
+
+        cdi_form_row = QHBoxLayout()
+        cdi_form_row.setSpacing(12)
+
+        lbl_taxa = QLabel("Taxa CDI Padrão Anual:")
+        lbl_taxa.setStyleSheet("font-weight: 600;")
+        self.sp_cdi_taxa = QDoubleSpinBox()
+        self.sp_cdi_taxa.setRange(0.0, 100.0)
+        self.sp_cdi_taxa.setDecimals(2)
+        self.sp_cdi_taxa.setSingleStep(0.25)
+        self.sp_cdi_taxa.setSuffix(" % ao ano")
+        self.sp_cdi_taxa.setFixedWidth(160)
+        self.sp_cdi_taxa.setValue(float(getattr(self.db.settings, "cdi_taxa_anual", 10.75) or 10.75))
+
+        btn_save_cdi = QPushButton("Salvar Taxa CDI")
+        btn_save_cdi.setObjectName("PrimaryButton")
+        btn_save_cdi.setIcon(get_line_icon("check", size=14, color="#FFFFFF"))
+        btn_save_cdi.setMinimumWidth(155)
+        btn_save_cdi.setMinimumHeight(32)
+        btn_save_cdi.setStyleSheet("QPushButton { padding: 0 16px; font-weight: 600; }")
+        btn_save_cdi.clicked.connect(self._on_save_cdi_rate)
+
+        self.lbl_cdi_feedback = QLabel("")
+        self.lbl_cdi_feedback.setStyleSheet("color: #17A05E; font-weight: 600;")
+
+        cdi_form_row.addWidget(lbl_taxa)
+        cdi_form_row.addWidget(self.sp_cdi_taxa)
+        cdi_form_row.addWidget(btn_save_cdi)
+        cdi_form_row.addWidget(self.lbl_cdi_feedback)
+        cdi_form_row.addStretch()
+        cdi_lay.addLayout(cdi_form_row)
+
+        # Card informativo sobre como funciona o rendimento diário
+        info_card = QFrame()
+        info_card.setObjectName("CardSurface")
+        info_lay = QVBoxLayout(info_card)
+        info_lay.setContentsMargins(20, 16, 20, 16)
+        info_lay.setSpacing(8)
+
+        lbl_info_t = QLabel("Como funciona o rendimento diário de Caixinhas CDB no Plutos:")
+        lbl_info_t.setStyleSheet("font-weight: 600; font-size: 14px;")
+        info_lay.addWidget(lbl_info_t)
+
+        lbl_info_desc = QLabel(
+            "• Cálculo Exato B3: O rendimento utiliza a fórmula oficial (1 + CDI)^(du/252) - 1 considerando apenas dias úteis e feriados nacionais fixos.\n"
+            "• Múltiplos Aportes & Resgates: Cada movimentação na conta é calculada individualmente a partir do dia útil em que ocorreu.\n"
+            "• 100% Local-First: O cálculo ocorre localmente sem necessidade de conexão com a internet.\n"
+            "• Ativação: Em 'Contas Bancárias', ao criar ou editar uma conta, ative a opção 'Caixinha CDB / Rendimento CDI' e defina o percentual desejado (ex.: 100% do CDI)."
+        )
+        lbl_info_desc.setObjectName("MutedText")
+        lbl_info_desc.setWordWrap(True)
+        info_lay.addWidget(lbl_info_desc)
+
+        root.addWidget(cdi_card)
+        root.addWidget(info_card)
+        root.addStretch()
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+    def refresh_data(self) -> None:
+        self.sp_cdi_taxa.setValue(float(getattr(self.db.settings, "cdi_taxa_anual", 10.75) or 10.75))
+
+    def _on_save_cdi_rate(self) -> None:
+        rate = round(self.sp_cdi_taxa.value(), 2)
+        self.db.settings.cdi_taxa_anual = rate
+        self.db.settings.save()
+        self.lbl_cdi_feedback.setText("Taxa CDI atualizada com sucesso!")
+        if self.on_environment_changed:
+            self.on_environment_changed()
+        QTimer.singleShot(3500, lambda: self.lbl_cdi_feedback.setText(""))
+
+
 class ConfiguracoesHubView(QWidget):
     """Hub único de Configurações com sub-abas (reaproveita as views existentes)."""
 
@@ -738,6 +864,11 @@ class ConfiguracoesHubView(QWidget):
         )
         self.ferramentas_view = ferramentas_view
         self.ia_tab = AIConfigTab(db, self)
+        self.invest_tab = InvestimentosConfigTab(
+            db,
+            on_environment_changed=getattr(banco_view, "on_environment_changed", lambda: None),
+            parent=self,
+        )
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
@@ -745,6 +876,7 @@ class ConfiguracoesHubView(QWidget):
         self.tabs.addTab(self.open_finance_tab, "Open Finance (Pluggy)")
         self.tabs.addTab(ferramentas_view, "Ferramentas")
         self.tabs.addTab(self.ia_tab, "Inteligência Artificial")
+        self.tabs.addTab(self.invest_tab, "Investimentos && CDI")
         self.tabs.currentChanged.connect(lambda _i: self.refresh_data())
         root.addWidget(self.tabs)
 
