@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-from app.config import gemini_key_store as key_store
+from app.config import ai_key_store as key_store
 from app.database.backup_service import BackupSchedulerService
 from app.ui.main_window import MainWindow
 from app.ui.views.configuracoes_hub_view import ConfiguracoesHubView

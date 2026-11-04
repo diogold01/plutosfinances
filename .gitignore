@@ -48,8 +48,10 @@ backup_etapas/
 .gemini/
 GEMINI.md
 
-# Chave de API Gemini (BYOK) - nunca versionar
+# Chaves de API e Tokens locais (BYOK) - nunca versionar
+dados_usuario/*.local
 dados_usuario/gemini_key.local
+dados_usuario/ai_key.local
 
 # Open Finance Pluggy (BYOK) - credenciais e arquivos locais
 dados_usuario/pluggy_config.local

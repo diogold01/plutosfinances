@@ -83,6 +83,39 @@ def test_key_store_resolution_and_no_leak_into_settings(tmp_path, monkeypatch) -
     assert "api_key" not in (tmp_path / "s.json").read_text(encoding="utf-8")
 
 
+def test_ai_key_store_primary_and_fallback(tmp_path, monkeypatch) -> None:
+    from app.config import ai_key_store as aks
+
+    monkeypatch.delenv(aks.PRIMARY_ENV_VAR, raising=False)
+    monkeypatch.delenv(aks.FALLBACK_ENV_VAR, raising=False)
+
+    # 1. Sem nada configurado
+    assert aks.resolve_ai_key(tmp_path) == ("", aks.SOURCE_NONE)
+
+    # 2. Fallback para gemini_key.local se ai_key.local não existir
+    (tmp_path / "gemini_key.local").write_text("chave-legada-gemini", encoding="utf-8")
+    assert aks.resolve_ai_key(tmp_path) == ("chave-legada-gemini", aks.SOURCE_FILE)
+
+    # 3. Prioridade de ai_key.local sobre gemini_key.local
+    (tmp_path / "ai_key.local").write_text("chave-nova-ai", encoding="utf-8")
+    assert aks.resolve_ai_key(tmp_path) == ("chave-nova-ai", aks.SOURCE_FILE)
+
+    # 4. Fallback de env vars
+    monkeypatch.setenv(aks.FALLBACK_ENV_VAR, "env-gemini")
+    assert aks.resolve_ai_key(tmp_path) == ("env-gemini", aks.SOURCE_ENV)
+
+    monkeypatch.setenv(aks.PRIMARY_ENV_VAR, "env-ai-primaria")
+    assert aks.resolve_ai_key(tmp_path) == ("env-ai-primaria", aks.SOURCE_ENV)
+
+    # 5. Limpeza remove ambos os arquivos
+    monkeypatch.delenv(aks.PRIMARY_ENV_VAR)
+    monkeypatch.delenv(aks.FALLBACK_ENV_VAR)
+    aks.clear_ai_key(tmp_path)
+    assert not (tmp_path / "ai_key.local").exists()
+    assert not (tmp_path / "gemini_key.local").exists()
+    assert aks.resolve_ai_key(tmp_path)[1] == aks.SOURCE_NONE
+
+
 def test_format_clean_description_and_title_casing() -> None:
     # Casos em caixa baixa
     assert format_clean_description("uber") == "Uber"

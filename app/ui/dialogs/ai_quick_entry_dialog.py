@@ -7,7 +7,7 @@ from typing import Callable, List, Optional, Set
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 
-from app.config import gemini_key_store as key_store
+from app.config import ai_key_store as key_store
 from app.config.theme_palette import ThemePalette
 from app.database.connection_manager import ConnectionManager
 from app.domain.models import KIND_DESPESA, KIND_RECEITA, KIND_TRANSFERENCIA
