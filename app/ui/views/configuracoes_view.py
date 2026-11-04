@@ -293,10 +293,10 @@ class ConfiguracoesView(QWidget):
         btn_activate_prof.setObjectName("SecondaryButton")
         btn_activate_prof.clicked.connect(self._on_activate_selected_profile)
 
-        btn_edit_prof = QPushButton("Editar Perfil")
-        btn_edit_prof.setObjectName("SecondaryButton")
-        btn_edit_prof.setIcon(get_line_icon("pencil", size=14))
-        btn_edit_prof.clicked.connect(self._on_edit_selected_profile)
+        self.btn_edit_prof = QPushButton("Editar Perfil")
+        self.btn_edit_prof.setObjectName("SecondaryButton")
+        self.btn_edit_prof.setIcon(get_line_icon("pencil", size=14))
+        self.btn_edit_prof.clicked.connect(self._on_edit_selected_profile)
 
         btn_pin = QPushButton("Configurar PIN")
         btn_pin.setObjectName("SecondaryButton")
@@ -304,7 +304,7 @@ class ConfiguracoesView(QWidget):
         btn_pin.clicked.connect(self._on_configure_pin)
 
         prof_btns.addWidget(btn_activate_prof)
-        prof_btns.addWidget(btn_edit_prof)
+        prof_btns.addWidget(self.btn_edit_prof)
         prof_btns.addWidget(btn_pin)
         prof_btns.addWidget(btn_new_prof)
         prof_head.addLayout(prof_btns)

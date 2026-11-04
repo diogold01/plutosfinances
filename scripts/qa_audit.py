@@ -18,6 +18,12 @@ from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QApplication,
@@ -194,8 +200,8 @@ def run_qa_audit() -> int:
         # Tela de configurações: checa tabela de perfis
         win.navigate_to("configuracoes")
         app.processEvents()
-        view_cfg = win.configuracoes_view
-        if hasattr(view_cfg, "table_profiles"):
+        view_cfg = getattr(win, "config_view", getattr(win, "configuracoes_view", None))
+        if view_cfg and hasattr(view_cfg, "table_profiles"):
             rows = view_cfg.table_profiles.rowCount()
             if rows == 0:
                 issues_found.append(
@@ -246,7 +252,6 @@ def run_qa_audit() -> int:
                 win.grab().save(str(shots_dir / f"{mode}_{k}.png"))
 
         print(f"\n📸 Snapshots visuais gerados em: {shots_dir}")
-
         win.close()
         db.close()
 

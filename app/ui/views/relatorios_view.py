@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config import gemini_key_store as key_store
+from app.config import ai_key_store as key_store
 from app.config.theme_palette import (
     EXPENSE_RED,
     INCOME_GREEN,

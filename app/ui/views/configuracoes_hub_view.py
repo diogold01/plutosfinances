@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config import gemini_key_store as key_store
+from app.config import ai_key_store as key_store
 from app.config.theme_palette import ThemePalette
 from app.database.connection_manager import ConnectionManager
 from app.database.repositories.profile_repository import ProfileRepository
