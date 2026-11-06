@@ -195,7 +195,7 @@ Minhas Finanças/
 
 ## 🧪 Testes Automatizados
 
-O Plutos conta com uma suíte de testes automatizados cobrindo banco de dados, regras de negócio, cálculo de faturas, orçamentos e importação/exportação:
+O Plutos conta com uma suíte de **97 testes automatizados** cobrindo banco de dados, regras de negócio, cálculo de faturas, orçamentos, importação/exportação, além de testes de regressão e auditoria visual offscreen:
 
 ```bash
 # Executar todos os testes

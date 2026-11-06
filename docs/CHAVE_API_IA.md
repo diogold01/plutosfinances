@@ -11,3 +11,11 @@ O recurso de **Lançamento Rápido por IA** opera no modelo BYOK (*Bring Your Ow
   3. Campo na tela de Configurações → Inteligência Artificial
 - `dados_usuario/ai_key.local.example` é apenas um modelo vazio de exemplo (versionável).
 - O aplicativo nunca expõe a chave completa em logs, interface ou mensagens de erro.
+
+## Como Obter sua Chave Gratuita (Passo a Passo)
+1. Acesse o console oficial [Google AI Studio](https://aistudio.google.com/).
+2. Faça login com a sua conta Google.
+3. No menu lateral, clique em **Get API key** e depois em **Create API key**.
+4. Copie a chave gerada (iniciada por `AIza...`).
+5. No Plutos, vá em **Configurações → Inteligência Artificial**, cole a chave e clique em **Salvar Credenciais** (ou salve diretamente no arquivo `dados_usuario/ai_key.local`).
+
