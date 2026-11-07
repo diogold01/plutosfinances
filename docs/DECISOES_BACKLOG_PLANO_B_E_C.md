@@ -24,3 +24,16 @@ Este documento registra as decisões homologadas pelo usuário no dia 31/10/2026
 * **Modelo & Esforço Futuro:**
   - Prompt & Schemas: **Gemini 3.8 Argon** (*Medium*)
   - Telas e Threads Assíncronas: **Sonnet 3.5** (*Medium*)
+
+---
+
+## 🎨 Backlog Futuro de Refinamento de UI: Tela de Tags (`TagsView`)
+
+* **Data do Registro:** 07/11/2026
+* **Observações Visuais (Light e Dark Mode):**
+  1. **Contraste na coluna "Cor Visual":**
+     - Atualmente a coluna exibe uma pill com o texto do código hexadecimal (`#E5603D`) estilizado com transparência (`{color}22`).
+     - Em **Dark Mode** e especialmente quando a linha da tabela está **selecionada** (fundo escuro/terracota), o contraste entre o texto do hex e o fundo fica reduzido, dificultando a leitura rápida.
+     - **Solução Planejada:** Exibir uma amostra de cor visual (swatch/círculo sólido com borda sutil) acompanhada de texto com contraste adaptativo (ou apenas a amostra visual com tooltip), garantindo contraste WCAG AA tanto no tema claro quanto no escuro.
+  2. **Preview no Modal "Nova Tag":**
+     - Incluir pré-visualização dinâmica do chip da tag em tempo real conforme o usuário digita o nome e seleciona a cor no combobox.

@@ -29,9 +29,9 @@ env/
 *.sqlite3
 !app/assets/seed/*.db
 !app/assets/seed/*.sqlite
-dados_usuario/*.sqlite
-dados_usuario/backups/
-dados_usuario/app_settings.json
+dados_usuario/*
+!dados_usuario/*.example
+!dados_usuario/modelo_extrato_padrao_plutos.csv
 
 # Backups locais de desenvolvimento
 backup_etapas/

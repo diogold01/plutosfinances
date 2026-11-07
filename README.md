@@ -2,78 +2,149 @@
 
 # 💎 Plutos — Controle Financeiro Pessoal
 
-**O aplicativo desktop nativo definitivo para gestão financeira pessoal com foco em privacidade, elegância e performance.**
+**Aplicação desktop nativa para gestão financeira pessoal com arquitetura Local-First, interface moderna em Qt 6 e recursos opcionais de IA (Google Gemini).**
 
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![UI Framework](https://img.shields.io/badge/GUI-PySide6%20(Qt6)-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://wiki.qt.io/Qt_for_Python)
 [![Database](https://img.shields.io/badge/Database-SQLite3%20Local-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/diogold01/plutosfinances)
-[![Privacy First](https://img.shields.io/badge/Privacy-100%25%20Local%20Storage-2ea44f?style=for-the-badge)](#-privacidade-e-segurança)
+[![Tests](https://img.shields.io/badge/Tests-97%20passed%20(100%25)-brightgreen?style=for-the-badge)](tests/)
+[![Release](https://img.shields.io/badge/Release-v1.3.6-blue?style=for-the-badge)](https://github.com/diogold01/plutosfinances/releases)
 
 <br/>
 
 <p align="center">
-  <img src="referencias/ref-plutos/dashboard.png" alt="Plutos Dashboard Preview" width="900px" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.25);" />
+  <img src="referencias/ref-plutos/dashboard.png" alt="Plutos Dashboard (Tema Claro)" width="48%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);" />
+  <img src="referencias/ref-plutos/dashboard_dark.png" alt="Plutos Dashboard (Tema Escuro)" width="48%" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);" />
 </p>
+<p align="center"><i>Interface nativa PySide6 com alternância instantânea entre Tema Claro e Tema Escuro</i></p>
 
 </div>
 
 ---
 
-## 📖 Visão Geral
+## ⚡ Visão Rápida (30 Segundos)
 
-O **Plutos** é uma aplicação desktop nativa moderna desenvolvida em **Python** e **PySide6 (Qt 6)** projetada para oferecer controle total sobre receitas, despesas, cartões de crédito, metas e orçamentos.
+- **O que é:** Gerenciador financeiro desktop completo para Windows, desenvolvido em Python e PySide6 (Qt 6).
+- **Filosofia Local-First:** Seus dados residem 100% no seu computador em um banco relacional **SQLite**. Sem telemetria, sem necessidade de login em servidores remotos e com operação padrão totalmente offline.
+- **Inteligência Artificial Prática (BYOK):** Lançamento de despesas e receitas por linguagem natural (ex.: *"almoço 45 reais débito nubank"*) e diagnóstico automatizado de saúde financeira baseado na regra orçamentária **50-30-20**, alimentados pela API Google Gemini com sua própria chave gratuita.
+- **Rendimento Automático de CDB:** Projeção diária precisa de rendimento (% do CDI) com base no calendário de dias úteis da B3.
+- **Pronto para Produção:** Suíte com **97 testes automatizados** cobrindo regras de negócio, persistência SQLite e integridade visual de interface.
 
-Diferente de soluções em nuvem que cobram assinaturas e expõem dados sensíveis, o Plutos opera com arquitetura **Local-First**: **todos os seus dados financeiros pertencem exclusivamente a você e nunca saem do seu computador**.
+---
+
+## 🔒 Privacidade e Armazenamento de Dados
+
+A arquitetura do Plutos prioriza a total soberania e segurança das suas informações financeiras:
+
+- **Armazenamento 100% Local:** Contas, saldos, transações e orçamentos ficam salvos exclusivamente no arquivo SQLite local (`.sqlite`), sem sincronização compulsória com a nuvem.
+- **Backup Local em Tempo de Execução ("Backup Online"):** O termo técnico *"Backup Online"* refere-se estritamente à API nativa do SQLite (`sqlite3.backup`), que permite criar cópias a quente da base de dados local diretamente no disco (`dados_usuario/backups/`) enquanto o app está aberto, com retenção automática das últimas 6 versões. **Nenhum arquivo ou dado é enviado para a internet ou para servidores externos.**
+- **Chamadas de Rede Opcionais (Opt-in):**
+  1. **Assistente de IA (Google Gemini):** Ao usar o atalho de linguagem natural (`Ctrl+K`) ou solicitar o Diagnóstico de Saúde Financeira, **apenas o texto digitado ou os totais consolidados do mês** e a lista de categorias são enviados à API do Google Gemini. Seu banco de dados completo, histórico pessoal e saldos confidenciais nunca saem da sua máquina.
+  2. **Open Finance (Pluggy):** Se ativado opcionalmente pelo usuário com credenciais próprias da Pluggy, a comunicação é feita diretamente entre o computador local e os bancos brasileiros homologados, sempre com tela de prévia e confirmação manual antes da gravação no banco.
+
+---
+
+## 🤖 Inteligência Artificial (Google Gemini — BYOK)
+
+O Plutos integra recursos de Inteligência Artificial desenhados para eliminar o trabalho manual de categorização e fornecer inteligência orçamentária:
+
+### 1. Lançamento por Linguagem Natural (`Ctrl+K` ou `Ctrl+J`)
+Permite registrar transações complexas digitando frases simples do dia a dia:
+
+<div align="center">
+  <kbd>Ctrl</kbd> + <kbd>K</kbd> &nbsp;ou&nbsp; <kbd>Ctrl</kbd> + <kbd>J</kbd> &nbsp;(ou clique no botão com ícone de brilho no topo)
+</div>
+
+<br/>
+
+- **Exemplos aceitos:**
+  - *"Almoço executivo 45,90 no débito Nubank"*
+  - *"Salário 4800 no Itaú dia 05"*
+  - *"pão 12 padaria no dinheiro"*
+  - *"Cinema 60 cartão Inter 2x"*
+- **Multi-lançamentos:** Digite várias linhas simultaneamente para cadastrar múltiplas despesas de uma só vez.
+- **Conferência Prévia:** A IA interpreta valor, data, conta, cartão, forma de pagamento e categoria existente. O usuário confere e valida em tela antes de salvar.
+
+### 2. Diagnóstico de Saúde Financeira & Regra 50-30-20
+Na tela de **Relatórios**, o botão **Diagnóstico IA** realiza uma análise financeira mensal completa:
+- **Score Financeiro (0 a 100):** Avaliação ponderada entre taxa de poupança, controle de essenciais e solvência.
+- **Enquadramento na Regra 50-30-20:**
+  - **Gastos Essenciais (Meta até 50%):** Moradia, alimentação básica, saúde e contas fixas.
+  - **Estilo de Vida (Meta até 30%):** Lazer, compras, restaurantes e entretenimento.
+  - **Poupança & Investimentos (Meta mínima 20%):** Aportes em metas, caixinhas CDB e reservas.
+- **Detecção de Anomalias:** Compara gastos da competência atual contra a média dos 2 meses anteriores para identificar estouros e desvios.
+- **Recomendações Práticas:** A IA formula sugestões personalizadas e acionáveis para otimizar o orçamento do mês seguinte.
+
+### 🔑 Configuração da Chave de API (BYOK — Bring Your Own Key)
+A chave da API do Google Gemini é gratuita e obtida diretamente no [Google AI Studio](https://aistudio.google.com/). Ela **nunca** é gravada no código-fonte. O Plutos resolve a credencial na seguinte ordem:
+
+1. **Interface Gráfica:** Acesse **Configurações → Inteligência Artificial**, informe a chave e clique em *Salvar*.
+2. **Arquivo Local:** Crie o arquivo `dados_usuario/gemini_key.local` (ou `ai_key.local`) contendo a chave (já protegido pelo `.gitignore`).
+3. **Variável de Ambiente:**
+   ```powershell
+   $env:GEMINI_API_KEY = "AIzaSy..."
+   ```
+
+*Modelo padrão:* `gemini-3.5-flash-lite` (baixo custo computacional, alta velocidade e excelente precisão para JSON estruturado).
 
 ---
 
 ## ✨ Principais Funcionalidades
 
-### 📊 1. Dashboard Financeiro Central
-- Visão consolidada de saldo geral acumulado, receitas do mês, despesas pagas e pendentes.
-- Gráficos de fluxo de caixa, evolução patrimonial e balanço mensal em tempo real.
-- Atalhos rápidos para inclusão de transações e conciliações.
+### 📊 Visão Geral (Dashboard)
+- Painel financeiro consolidado: Saldo Geral, Receitas, Despesas e Saldo Previsto do mês.
+- Gráfico interativo em rosca nativo com distribuição percentual por categoria.
+- Resumo de faturas de cartões e status de cumprimento de orçamentos.
 
-### 💳 2. Gestão Completa de Cartões de Crédito
-- Controle independente de múltiplos cartões com limites totais e disponíveis.
-- Gestão automática de **data de fechamento**, **data de vencimento** e cálculo do "melhor dia de compra".
-- Parcelamento inteligente com projeção automática de faturas futuras.
+### 💳 Cartões de Crédito e Faturas
+- Múltiplos cartões com limites, bandeiras oficiais e acompanhamento visual do limite utilizado.
+- Cálculo automático da data de fechamento, data de vencimento e melhor dia de compra.
+- Gestão completa de parcelamentos em faturas futuras e liquidação com 1 clique vinculada à conta corrente.
 
-### 🏦 3. Multicontas e Carteiras
-- Suporte a contas correntes, contas poupança, carteiras físicas e contas de investimento.
-- Catálogo nativo com **ícones de mais de 100 bancos e instituições financeiras brasileiras**.
-- Ajuste rápido de saldo e transferências entre contas com conciliação automática.
+### 🏦 Contas Bancárias & Caixinhas CDB
+- Gestão de contas correntes, contas salário, poupança, carteiras físicas e investimentos.
+- Catálogo com mais de 160 logotipos de bancos e fintechs nacionais.
+- **Cálculo de Rendimento de CDB (% CDI):** Rendimento diário automático para Caixinhas e CDBs de liquidez diária com base na convenção de 252 dias úteis (B3/Anbima), 100% offline.
 
-### 💸 4. Transações e Lançamentos Flexíveis
-- Lançamento de despesas, receitas e transferências com categorias e subcategorias.
-- Suporte a recorrências, despesas fixas, parcelamentos e transações pendentes/efetivadas.
-- Sistema de **Tags** transversais para rastreamento de projetos, eventos e viagens.
+### 💸 Transações, Recorrências e Tags
+- Lançamento de despesas, receitas e transferências entre contas com status efetivado ou pendente.
+- Parcelamentos, compras parceladas e transações recorrentes.
+- Sistema de **Tags (#)** para acompanhamento transversal (ex.: `#viagem`, `#reforma`, `#reembolso`).
+- Rateio multi-categoria (splits) em um único lançamento.
 
-### 🎯 5. Metas e Objetivos Financeiros
-- Criação de objetivos com valor-alvo, prazo estimado e acompanhamento percentual de progresso.
-- Histórico de aportes e resgates vinculados diretamente a contas e investimentos.
+### 📑 Orçamentos por Categoria
+- Metas de gastos mensais por categoria com alertas visuais (*Dentro da Meta*, *Em Alerta* e *Estourado*).
 
-### 📑 6. Orçamentos Mensais Inteligentes
-- Definição de limites de gastos por categoria (Alimentação, Moradia, Lazer, etc.).
-- Barras de progresso com alertas visuais de proximidade e estouro de orçamento.
+### 🎯 Objetivos e Metas Financeiras
+- Planejamento de metas de médio e longo prazo com data-alvo e sugestão matemática de aporte mensal.
+- Histórico completo de depósitos e resgates por objetivo.
 
-### 🗓️ 7. Visão em Calendário
-- Calendário financeiro interativo para visualização de vencimentos de faturas, contas a pagar e receitas previstas dia a dia.
+### 📈 Gráficos Analíticos Nativos (QtCharts)
+- Quatro gráficos integrados:
+  1. Despesas por Categoria (Rosca).
+  2. Receitas por Categoria (Rosca).
+  3. Comparativo Mensal de Receitas vs Despesas (Barras).
+  4. Curva de Evolução do Saldo Previsto e Resultado Líquido (Linhas).
 
-### 📁 8. Importação e Exportação (I/O Inteligente)
-- Importação rápida de extratos bancários via arquivos **CSV** e planilhas **Excel (.xlsx)**.
-- Mecanismo anti-duplicidade inteligente para evitar lançamentos repetidos.
-- Exportação de relatórios para auditoria e análises externas.
+### 📋 Relatórios & Exportação
+- Relatórios analíticos por Categoria, Subcategoria, Fluxo de Caixa Mensal e Tags.
+- **Exportação:** Geração de relatórios completos em planilhas Excel (`.xlsx`) e arquivos `.csv`.
+- **Importação Inteligente:** Leitor de extratos bancários em CSV com mapeamento flexível de colunas e prevenção de duplicatas via hash SHA-256.
 
-### 🔒 9. Privacidade e Segurança Local
-- **100% Offline e Local**: Banco de dados SQLite rápido e confiável diretamente no seu computador.
-- **Seus dados são seus**: Zero telemetria, sem necessidade de servidores externos ou conexão com a internet.
-- **Rotina de Backup**: Criação de cópias de segurança locais e restauração rápida do banco de dados com 1 clique.
+### 🗓️ Calendário Financeiro
+- Visão mensal com indicação de vencimentos de faturas, contas a pagar e recebimentos previstos.
+
+### ⚙️ Perfis, Segurança e Utilitários
+- Suporte a múltiplos perfis (Pessoal, Profissional) com bloqueio por PIN numérico local (hash SHA-256).
+- Simulador de juros compostos para planejamento patrimonial.
+- Controle de empréstimos concedidos e tomados.
+- Bloco de notas financeiras rápidas.
+- Integração opcional com Open Finance brasileiro via API Pluggy.
 
 ---
 
-## 🖼️ Demonstração Visual das Telas
+## 🖼️ Galeria de Telas
 
 <div align="center">
   <table>
@@ -90,17 +161,17 @@ Diferente de soluções em nuvem que cobram assinaturas e expõem dados sensíve
     <tr>
       <td width="50%">
         <img src="referencias/ref-plutos/contas.png" alt="Contas Bancárias" />
-        <p align="center"><b>Gestão de Contas e Bancos</b></p>
+        <p align="center"><b>Contas Bancárias e Rendimento CDB</b></p>
       </td>
       <td width="50%">
-        <img src="referencias/ref-plutos/orcamentos.png" alt="Planejamento de Orçamentos" />
-        <p align="center"><b>Orçamentos por Categoria</b></p>
+        <img src="referencias/ref-plutos/orcamentos.png" alt="Orçamentos" />
+        <p align="center"><b>Orçamentos Mensais</b></p>
       </td>
     </tr>
     <tr>
       <td width="50%">
         <img src="referencias/ref-plutos/Objetivos.png" alt="Metas e Objetivos" />
-        <p align="center"><b>Objetivos e Metas Financeiras</b></p>
+        <p align="center"><b>Metas e Objetivos Financeiros</b></p>
       </td>
       <td width="50%">
         <img src="referencias/ref-plutos/Categorias.png" alt="Categorias e Subcategorias" />
@@ -109,18 +180,28 @@ Diferente de soluções em nuvem que cobram assinaturas e expõem dados sensíve
     </tr>
     <tr>
       <td width="50%">
-        <img src="referencias/ref-plutos/Graficos.png" alt="Gráficos Analíticos" />
-        <p align="center"><b>Gráficos e Estatísticas</b></p>
+        <img src="referencias/ref-plutos/relatorios.png" alt="Relatórios Financeiros e Diagnóstico IA" />
+        <p align="center"><b>Relatórios e Diagnóstico IA 50-30-20</b></p>
       </td>
       <td width="50%">
-        <img src="referencias/ref-plutos/relatorios.png" alt="Relatórios Financeiros" />
-        <p align="center"><b>Relatórios e Fluxo de Caixa</b></p>
+        <img src="referencias/ref-plutos/Graficos.png" alt="Gráficos Analíticos" />
+        <p align="center"><b>Gráficos Analíticos (QtCharts)</b></p>
+      </td>
+    </tr>
+    <tr>
+      <td width="50%">
+        <img src="referencias/ref-plutos/calendario.png" alt="Calendário Financeiro" />
+        <p align="center"><b>Calendário de Vencimentos</b></p>
+      </td>
+      <td width="50%">
+        <img src="referencias/ref-plutos/configuracoes_ia.png" alt="Configuração de IA" />
+        <p align="center"><b>Configurações & Chaveiro de IA (BYOK)</b></p>
       </td>
     </tr>
     <tr>
       <td colspan="2" align="center">
-        <img src="referencias/ref-plutos/calendario.png" alt="Calendário Financeiro" width="75%" />
-        <p align="center"><b>Visão em Calendário de Vencimentos</b></p>
+        <img src="referencias/ref-plutos/dashboard_dark.png" alt="Visão Geral no Modo Escuro" width="80%" />
+        <p align="center"><b>Visão Geral no Modo Escuro (Dark Theme Nativo)</b></p>
       </td>
     </tr>
   </table>
@@ -128,34 +209,35 @@ Diferente de soluções em nuvem que cobram assinaturas e expõem dados sensíve
 
 ---
 
-## 🏗️ Arquitetura do Projeto
+## 🏗️ Arquitetura do Software
 
-O Plutos foi estruturado seguindo princípios de **Clean Architecture** e **Domain-Driven Design (DDD)**, garantindo separação rígida de responsabilidades:
+O projeto adota uma arquitetura limpa em camadas com desacoplamento estrito entre interface e regras de negócio:
 
 ```text
 Minhas Finanças/
 ├── app/
-│   ├── assets/                 # Ícones de bancos, SVGs, fontes e scripts SQL
-│   ├── config/                 # Configurações do app, paleta de cores e temas
-│   ├── database/               # Gerenciador de conexão SQLite, migrations e backups
-│   │   └── repositories/       # Padrão Repository (Accounts, Categories, Tags, etc.)
-│   ├── domain/                 # Entidades de negócio e regras de domínio
-│   │   └── services/           # Serviços (Transactions, Cards, Analytics, Budgets)
-│   ├── io_module/              # Manipulação de CSV, Excel e checagem de duplicatas
+│   ├── assets/                 # SVGs, logotipos de bancos e fontes
+│   ├── config/                 # Configurações do app, chaveiro de IA e temas (QSS)
+│   ├── database/               # Conexões SQLite, migrations e backup automático
+│   │   └── repositories/       # Padrão Repository (Accounts, Categories, Tags, Profiles)
+│   ├── domain/                 # Entidades e modelos puros de negócio
+│   │   └── services/           # Regras de negócio (Transactions, Cards, Analytics, AI)
+│   ├── io_module/              # Manipulação de CSV/Excel e deduplicação SHA-256
+│   ├── services/               # Integrações externas (Google Gemini REST, Pluggy Client)
 │   ├── ui/                     # Interface gráfica em PySide6
-│   │   ├── components.py       # Widgets reutilizáveis (cards, inputs, badges)
-│   │   ├── style_manager.py    # Gerenciador de temas dinâmicos (Dark / Light)
-│   │   └── views/              # Telas da aplicação (Dashboard, Cartões, Contas, etc.)
+│   │   ├── components.py       # Widgets customizados (StatCard, PillBadge, EmptyState)
+│   │   ├── style_manager.py    # Gerenciador de temas dinâmicos (Light / Dark)
+│   │   ├── dialogs/            # Modais (Lançamento IA, Edição de Fatura, etc.)
+│   │   └── views/              # Telas (Dashboard, Cartões, Contas, Relatórios, etc.)
 │   ├── main.py                 # Ponto de entrada da aplicação
-│   └── version.py              # Versão oficial centralizada do sistema
-├── docs/                       # Documentação técnica e regras de compilação
-│   └── rules/                  # Regras de versionamento e build
-├── installer/                  # Script oficial do instalador Windows Inno Setup
-├── referencias/                # Material visual e referências de design
-│   └── ref-plutos/             # Capturas de tela oficiais da aplicação
-├── scripts/                    # Scripts utilitários de geração de assets e demos
-├── tests/                      # Suíte de testes automatizados unitários e de integração
-└── build_executable_and_installer.ps1 # Script de automação de build e release
+│   └── version.py              # Versão oficial centralizada do sistema (1.3.6)
+├── dados_usuario/              # Diretório local para bancos SQLite e backups (ignorado no Git)
+├── docs/                       # Documentação técnica e manuais operacionais
+├── installer/                  # Script do instalador Windows Inno Setup 6
+├── referencias/                # Capturas de tela e especificações visuais
+├── scripts/                    # Scripts de QA e auditoria automatizada de interface
+├── tests/                      # Suíte com 97 testes automatizados (pytest)
+└── build_executable_and_installer.ps1 # Script de automação de build e instalador
 ```
 
 ---
@@ -163,72 +245,62 @@ Minhas Finanças/
 ## 🚀 Como Executar em Desenvolvimento
 
 ### Pré-requisitos
-- **Python 3.10 ou superior** instalado ([Download oficial](https://www.python.org/))
+- **Python 3.10, 3.11 ou 3.12** instalado ([Download oficial](https://www.python.org/))
 - **Git** instalado
 
-### Passo a Passo
+### Instalação e Execução
 
-1. **Clone o repositório:**
-   ```bash
-   git clone https://github.com/diogold01/plutosfinances.git
-   cd plutosfinances
-   ```
+```powershell
+# 1. Clone o repositório
+git clone https://github.com/diogold01/plutosfinances.git
+cd plutosfinances
 
-2. **Crie e ative um ambiente virtual (recomendado):**
-   ```bash
-   # No Windows (PowerShell)
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
+# 2. Crie e ative um ambiente virtual
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
-3. **Instale as dependências:**
-   ```bash
-   pip install PySide6 pytest openpyxl
-   ```
+# 3. Instale as dependências
+pip install PySide6 openpyxl pytest
 
-4. **Inicie a aplicação:**
-   ```bash
-   python -m app.main
-   ```
+# 4. Inicie a aplicação
+python -m app.main
+```
 
 ---
 
 ## 🧪 Testes Automatizados
 
-O Plutos conta com uma suíte de **97 testes automatizados** cobrindo banco de dados, regras de negócio, cálculo de faturas, orçamentos, importação/exportação, além de testes de regressão e auditoria visual offscreen:
+A confiabilidade do Plutos é assegurada por **97 testes automatizados** cobrindo regras de negócio financeiras, faturas de cartão, rendimento de CDB, operações de banco de dados, mocks de IA e validação de contratos visuais em modo offscreen:
 
-```bash
-# Executar todos os testes
-pytest -v tests
+```powershell
+# Executar a suíte completa de testes
+py -m pytest -v tests
 ```
 
 ---
 
 ## 📦 Compilação do Executável e Instalador Windows
 
-Para compilar o aplicativo em um executável autônomo (`.exe`) e gerar o instalador de distribuição via **Inno Setup**:
+Para gerar o executável standalone (`.exe`) via **PyInstaller** e o instalador de distribuição via **Inno Setup 6**:
 
-1. Certifique-se de que o PyInstaller está instalado:
-   ```bash
-   pip install pyinstaller
-   ```
-2. Execute o script de automação oficial:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\build_executable_and_installer.ps1 -Version "1.1.1"
-   ```
-3. Os binários gerados serão salvos em:
-   - `dist/Plutos/Plutos.exe` (Executável standalone)
-   - `dist/Instalador/Plutos_Setup_1.1.1.exe` (Instalador com assistente)
+```powershell
+# Instalar PyInstaller no ambiente
+pip install pyinstaller
 
----
+# Executar script mestre de build
+powershell -ExecutionPolicy Bypass -File .\build_executable_and_installer.ps1 -Version "1.3.6"
+```
 
-## 🛡️ Licença e Privacidade
-
-- **Dados 100% Locais:** Não há telemetria invasiva, envio de dados bancários para servidores externos nem necessidade de conexão constante com a internet.
-- Desenvolvido para oferecer máxima autonomia financeira pessoal com tecnologia de ponta.
+Os artefatos compilados são gerados em:
+- `dist/Plutos/Plutos.exe` (Executável standalone com dependências embutidas)
+- `dist/Instalador/Plutos_Setup_1.3.6.exe` (Instalador executável para Windows)
 
 ---
+
+## 🛡️ Licença
+
+Distribuído sob licença de uso pessoal e educacional. Todos os direitos reservados.
 
 <div align="center">
-  <b>Plutos</b>
+  <b>Plutos v1.3.6</b>
 </div>
