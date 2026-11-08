@@ -149,7 +149,7 @@ class AppSettings:
             }
             filtered = {k: v for k, v in raw.items() if k in valid_keys}
             instance = cls(**filtered, _settings_path=target_path)
-            # Garante políticas obrigatórias do Requisito 5
+            # Garante políticas de retenção e intervalo padrão de backup
             instance.backup_retention_count = BACKUP_RETENTION_MAX_FILES
             if instance.backup_interval_seconds <= 0:
                 instance.backup_interval_seconds = BACKUP_INTERVAL_3_HOURS_SECONDS

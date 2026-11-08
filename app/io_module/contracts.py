@@ -1,5 +1,5 @@
 """
-Contratos e DTOs independentes do Módulo de Importação/Exportação CSV e Excel (Requisito 3).
+Contratos e DTOs do Módulo de Importação/Exportação CSV e Excel.
 
 Projetado com acoplamento zero em relação à camada de interface gráfica (`PySide6`) e ao
 banco de dados, permitindo:
@@ -111,7 +111,7 @@ class ExportReport:
 @runtime_checkable
 class ExternalSpreadsheetFormatterHook(Protocol):
     """
-    Protocolo de extensão para ferramentas externas de formatação de planilhas (Requisito 3).
+    Protocolo de extensão para ferramentas externas de formatação de planilhas.
 
     Qualquer ferramenta ou plugin externo (ex.: formatador corporativo OpenPyXL, injetor de
     tabelas dinâmicas, gerador de gráficos Excel ou normalizador de CSV) pode ser registrado

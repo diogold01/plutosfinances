@@ -796,7 +796,7 @@ class RealignExpensesDialog(QDialog):
 
 class CartoesView(QWidget):
     """
-    Tela interativa de Cartões de Crédito e Faturas Mensais (Etapa 5 do Redesign):
+    Tela interativa de Cartões de Crédito e Faturas Mensais:
     - Galeria de Cards de Cartão no topo com logo pequeno do banco (26px) ao lado do nome,
       final ••••, valor da fatura em destaque, vencimento e barra de limite com percentual.
     - Clique em qualquer card atualiza a fatura detalhada abaixo.

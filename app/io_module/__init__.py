@@ -1,4 +1,4 @@
-"""Módulo Independente de Importação e Exportação CSV e Excel (Requisito 3)."""
+"""Módulo de importação e exportação CSV e Excel."""
 
 from app.io_module.contracts import (
     CanonicalTransactionRow,

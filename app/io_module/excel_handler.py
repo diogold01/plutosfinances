@@ -13,7 +13,7 @@ Recursos:
   `R$ #,##0.00` e ajuste automático de largura de colunas.
 - Lê planilhas `.xlsx` de qualquer aba, detectando cabeçalhos e tipos automaticamente.
 - Executa hooks externos (`ExternalSpreadsheetFormatterHook`) para integração com ferramentas
-  externas de formatação de planilhas (Requisito 3).
+  externas de formatação de planilhas.
 """
 
 from __future__ import annotations
