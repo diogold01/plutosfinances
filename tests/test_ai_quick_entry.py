@@ -12,7 +12,7 @@ from app.domain.services.ai_entry_service import load_catalog, persist_entry
 from app.domain.services.ai_service import AIService, TransactionDraft
 from app.domain.services.transaction_service import TransactionService
 from app.ui.dialogs.ai_quick_entry_dialog import AIQuickEntryDialog
-from tests.test_etapa4_transactions_and_cards import _make_env
+from tests.test_transactions_and_cards import _make_env
 
 
 def test_catalog_resolve_persist_and_dialog(tmp_path: Path) -> None:

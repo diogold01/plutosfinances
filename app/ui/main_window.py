@@ -501,10 +501,10 @@ class MainWindow(QMainWindow):
         for item in self.NAV_ITEMS:
             key, label = item[0], item[1]
             if key not in self._views:
-                self._views[key] = self._build_stage_overview_widget(key, label)
+                self._views[key] = self._build_placeholder_widget(key, label)
             self.stack.addWidget(self._views[key])
 
-    def _build_stage_overview_widget(self, key: str, label: str) -> QWidget:
+    def _build_placeholder_widget(self, key: str, label: str) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -524,11 +524,8 @@ class MainWindow(QMainWindow):
         c_lay.addWidget(lbl_t)
 
         lbl_desc = QLabel(
-            "Os módulos base da Etapa 3 (<b>Contas Bancárias e Saldos Mensais</b>, "
-            "<b>Categorias e Subcategorias</b>, <b>Tags</b>, <b>Perfis</b>, "
-            "<b>Seletor de Base SQLite</b> e <b>Backup Online Automático 3h/6 arquivos</b>) "
-            "já estão 100% operacionais no menu lateral.<br><br>"
-            "Este módulo será detalhado nas próximas etapas do plano modular (Etapas 4, 5 e 6)."
+            f"O módulo <b>{label}</b> está em desenvolvimento ou temporariamente indisponível.<br><br>"
+            "Utilize os botões abaixo para navegar para as seções principais da aplicação."
         )
         lbl_desc.setWordWrap(True)
         c_lay.addWidget(lbl_desc)

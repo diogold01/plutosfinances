@@ -1,39 +1,28 @@
-# 📌 Registro de Decisões Estratégicas: Planos B e C (Backlog Futuro)
+# Backlog e Decisões de Arquitetura
 
-Este documento registra as decisões homologadas pelo usuário no dia 31/10/2026 para os **Planos B e C**, que serão desenvolvidos após a conclusão do **Plano A (Open Finance Pluggy)**.
-
----
-
-## 📦 Plano B: Caixinha CDB & Rendimento Diário
-* **Localização e Comportamento na UI:**
-  - Será implementada como um **tipo especial de Conta Bancária** (com flag/tipo de investimento e liquidez diária).
-  - O saldo é atualizado diariamente com base nos juros acumulados desde o aporte.
-* **Origem da Taxa CDI:**
-  - **Valor Fixo Customizável nas Configurações** (ex.: o usuário define 10,75% ao ano nas configurações do app), funcionando 100% offline e sem depender de APIs externas.
-* **Modelo & Esforço Futuro:**
-  - Backend/Matemática: **Gemini 3.8 Argon** (*Medium*)
-  - UI/Card: **Sonnet 3.5** (*Low/Medium*)
+Registro de especificações técnicas e planejamento de evolução de módulos do Plutos.
 
 ---
 
-## 🤖 Plano C: Assistente de Inteligência Financeira (Gemini BYOK)
-* **Localização na UI:**
-  - Ficará centralizado na **aba de 'Relatórios'**, como uma seção avançada de **'Análise Preditiva e Dicas de Saúde Financeira'**.
-* **Comportamento:**
-  - Gera diagnósticos sob demanda, avaliando categorias com maior gasto, comprometimento de renda e metas financeiras.
-* **Modelo & Esforço Futuro:**
-  - Prompt & Schemas: **Gemini 3.8 Argon** (*Medium*)
-  - Telas e Threads Assíncronas: **Sonnet 3.5** (*Medium*)
+## Módulo: Caixinha CDB e Rendimento Diário
+
+- **Localização na UI:** Implementado como tipo especializado de conta bancária com liquidez diária.
+- **Cálculo:** Atualização diária com base na convenção de 252 dias úteis bancários (B3/Anbima).
+- **Taxa CDI:** Parâmetro fixo configurável em Configurações (ex.: 10,75% ao ano), funcionando 100% offline.
 
 ---
 
-## 🎨 Backlog Futuro de Refinamento de UI: Tela de Tags (`TagsView`)
+## Módulo: Diagnóstico de Saúde Financeira (Google Gemini BYOK)
 
-* **Data do Registro:** 07/11/2026
-* **Observações Visuais (Light e Dark Mode):**
-  1. **Contraste na coluna "Cor Visual":**
-     - Atualmente a coluna exibe uma pill com o texto do código hexadecimal (`#E5603D`) estilizado com transparência (`{color}22`).
-     - Em **Dark Mode** e especialmente quando a linha da tabela está **selecionada** (fundo escuro/terracota), o contraste entre o texto do hex e o fundo fica reduzido, dificultando a leitura rápida.
-     - **Solução Planejada:** Exibir uma amostra de cor visual (swatch/círculo sólido com borda sutil) acompanhada de texto com contraste adaptativo (ou apenas a amostra visual com tooltip), garantindo contraste WCAG AA tanto no tema claro quanto no escuro.
-  2. **Preview no Modal "Nova Tag":**
-     - Incluir pré-visualização dinâmica do chip da tag em tempo real conforme o usuário digita o nome e seleciona a cor no combobox.
+- **Localização na UI:** Seção na aba de Relatórios com acionamento sob demanda via botão "Diagnóstico IA".
+- **Comportamento:** Avaliação da conformidade orçamentária com a Regra 50-30-20, cálculo de score financeiro e detecção de anomalias em relação aos meses anteriores.
+- **Integração:** Comunicação direta com a API REST do Google Gemini utilizando chave informada pelo usuário.
+
+---
+
+## Refinamento de Interface: Tela de Tags (TagsView)
+
+- **Contraste na coluna Cor Visual:**
+  - Substituir a renderização atual do código hexadecimal em pill translúcida por uma amostra de cor sólida (*swatch* circular) com contraste adaptativo (WCAG AA) em ambos os temas.
+- **Preview Dinâmico:**
+  - Adicionar pré-visualização ao vivo do chip da tag no modal de criação e edição conforme o usuário digita o nome e seleciona a cor.

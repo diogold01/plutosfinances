@@ -1,4 +1,4 @@
-"""Serviço de Backup Online em 2º Plano com Retenção de Exatamente 6 Arquivos (Requisito 5)."""
+"""Serviço de backup local a quente em segundo plano com retenção automática."""
 
 from __future__ import annotations
 

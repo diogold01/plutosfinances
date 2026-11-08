@@ -236,7 +236,7 @@ RUNTIME_COLUMN_MIGRATIONS: Dict[str, List[Tuple[str, str]]] = {
     ],
 }
 
-# Tabelas auditadas automaticamente por triggers para rastrear modificações pendentes (Requisito 5)
+# Tabelas auditadas automaticamente por triggers para rastrear modificações pendentes de backup
 AUDITED_DOMAIN_TABLES: List[str] = [
     "profiles",
     "login",

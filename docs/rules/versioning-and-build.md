@@ -3,9 +3,9 @@ description: Regras obrigatórias de versionamento e compilação do Plutos
 globs: ["build_executable_and_installer.ps1", "installer/*.iss", "app/version.py", "app/ui/main_window.py"]
 ---
 
-# Regras Obrigatórias de Versionamento e Compilação do Plutos
+# Diretrizes de Versionamento e Compilação do Plutos
 
-Toda vez que for solicitado gerar executável, compilar o projeto ou criar o instalador, o assistente DEVE OBRIGATORIAMENTE seguir estes passos antes de rodar o build:
+Procedimento padrão para geração de executáveis standalone e instalador Windows:
 
 1. **Fonte da Verdade da Versão:**
    - A versão oficial do aplicativo está definida em `app/version.py` (`__version__ = "X.Y.Z"`).

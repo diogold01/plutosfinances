@@ -1,4 +1,4 @@
-"""Gerenciador de conexões e transações SQLite com confirmação imediata em disco (Requisito 4)."""
+"""Gerenciador de conexões e transações SQLite com confirmação imediata em disco."""
 
 from __future__ import annotations
 
