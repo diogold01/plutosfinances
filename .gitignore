@@ -57,3 +57,12 @@ dados_usuario/ai_key.local
 dados_usuario/pluggy_config.local
 dados_usuario/pluggy_connect.html
 
+# Instruções locais de IA e rascunhos internos
+GLOBAL_RULES.md
+CLAUDE.md
+rules.md
+context.md
+referencias/iamockup/
+docs/DECISOES_BACKLOG_PLANO_B_E_C.md
+docs/STATUS_EXECUCAO.md
+docs/rules/
