@@ -8,7 +8,7 @@ installer/MinhasFinancas*
 # Python / Bytecode / Cache
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 *.pyc
 .pytest_cache/
 
@@ -45,24 +45,3 @@ backup_etapas/
 .vscode/
 .idea/
 *.swp
-.gemini/
-GEMINI.md
-
-# Chaves de API e Tokens locais (BYOK) - nunca versionar
-dados_usuario/*.local
-dados_usuario/gemini_key.local
-dados_usuario/ai_key.local
-
-# Open Finance Pluggy (BYOK) - credenciais e arquivos locais
-dados_usuario/pluggy_config.local
-dados_usuario/pluggy_connect.html
-
-# Instruções locais de IA e rascunhos internos
-GLOBAL_RULES.md
-CLAUDE.md
-rules.md
-context.md
-referencias/iamockup/
-docs/DECISOES_BACKLOG_PLANO_B_E_C.md
-docs/STATUS_EXECUCAO.md
-docs/rules/
