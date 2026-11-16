@@ -18,6 +18,10 @@ from app.database.connection_manager import ConnectionManager
 from app.database.repositories.account_repository import AccountRepository
 from app.database.repositories.category_repository import CategoryRepository
 from app.domain.models import KIND_DESPESA, KIND_RECEITA
+from app.domain.services.ai_entry_service import (
+    enrich_canonical_rows_with_rules_and_ai,
+    reconcile_self_transfers_in_rows,
+)
 from app.domain.services.credit_card_service import CreditCardService
 from app.domain.services.transaction_service import TransactionService
 from app.io_module.contracts import CanonicalTransactionRow
@@ -70,6 +74,9 @@ class SyncApplySummary:
     cartoes_sincronizados: int = 0
     transacoes_importadas: int = 0
     duplicadas_ignoradas: int = 0
+    categorizadas_regras_locais: int = 0
+    categorizadas_ia: int = 0
+    transferencias_conciliadas: int = 0
 
 
 class PluggySyncService:
@@ -398,6 +405,57 @@ class PluggySyncService:
 
         return matched_cat.id, matched_sub.id
 
+    def enrich_batches(
+        self,
+        batches: List[SyncBatchResult],
+        *,
+        profile_id: str = "1",
+        use_ai: bool = False,
+        ai_service: Optional[Any] = None,
+    ) -> Tuple[int, int, int]:
+        """Concilia transferências entre contas e categoriza lançamentos via regras locais + IA."""
+        orig_fps: Dict[int, str] = {
+            id(row): row.fingerprint
+            for b in batches
+            for row in b.novas_transacoes
+            if row.fingerprint
+        }
+
+        bank_rows: List[CanonicalTransactionRow] = []
+        for b in batches:
+            if b.account.tipo_plutos == "CONTA":
+                for row in b.novas_transacoes:
+                    if not (row.conta or "").strip():
+                        row.conta = b.account.nome
+                    bank_rows.append(row)
+
+        reconciled_count = reconcile_self_transfers_in_rows(bank_rows)
+        if reconciled_count > 0:
+            surviving_ids = {id(r) for r in bank_rows}
+            for b in batches:
+                if b.account.tipo_plutos == "CONTA":
+                    b.novas_transacoes = [
+                        r for r in b.novas_transacoes if id(r) in surviving_ids
+                    ]
+
+        all_rows = [row for b in batches for row in b.novas_transacoes]
+        local_hits = 0
+        ai_hits = 0
+        if self.db is not None and all_rows:
+            local_hits, ai_hits = enrich_canonical_rows_with_rules_and_ai(
+                self.db,
+                all_rows,
+                profile_id=profile_id,
+                ai_service=ai_service,
+                use_ai=use_ai,
+            )
+
+        for row in all_rows:
+            if id(row) in orig_fps:
+                row.fingerprint = orig_fps[id(row)]
+
+        return local_hits, ai_hits, reconciled_count
+
     def apply_sync_results(
         self,
         batches: List[SyncBatchResult],
@@ -406,6 +464,8 @@ class PluggySyncService:
         mes: Optional[int] = None,
         ano: Optional[int] = None,
         reconcile_balances: bool = True,
+        enrich_with_ai: bool = False,
+        ai_service: Optional[Any] = None,
     ) -> SyncApplySummary:
         """
         Persiste as contas, cartões, investimentos e novas transações aprovadas pelo usuário
@@ -424,6 +484,15 @@ class PluggySyncService:
         card_service = CreditCardService(self.db, tx_service)
 
         summary = SyncApplySummary()
+        loc_hits, ai_hits, rec_cnt = self.enrich_batches(
+            batches,
+            profile_id=profile_id,
+            use_ai=enrich_with_ai,
+            ai_service=ai_service,
+        )
+        summary.categorizadas_regras_locais = loc_hits
+        summary.categorizadas_ia = ai_hits
+        summary.transferencias_conciliadas = rec_cnt
 
         for batch in batches:
             acc = batch.account
@@ -464,6 +533,10 @@ class PluggySyncService:
                     cat_id, sub_id = self._resolve_or_create_category(
                         cat_repo, KIND_DESPESA, row.categoria, row.subcategoria, profile_id
                     )
+                    raw_desc = getattr(row, "_raw_descricao", None) or row.descricao
+                    cleaned_desc = row.descricao
+                    if raw_desc != cleaned_desc:
+                        row.descricao = raw_desc
                     compute_row_fingerprint(
                         row,
                         target_account_id="",
@@ -476,8 +549,10 @@ class PluggySyncService:
                         target_card_id=card_id,
                         profile_id=profile_id,
                     ):
+                        row.descricao = cleaned_desc
                         summary.duplicadas_ignoradas += 1
                         continue
+                    row.descricao = cleaned_desc
 
                     created_ids = tx_service.create_expense(
                         descricao=row.descricao,
@@ -531,6 +606,10 @@ class PluggySyncService:
                         summary.contas_atualizadas += 1
 
                 for row in batch.novas_transacoes:
+                    raw_desc = getattr(row, "_raw_descricao", None) or row.descricao
+                    cleaned_desc = row.descricao
+                    if raw_desc != cleaned_desc:
+                        row.descricao = raw_desc
                     compute_row_fingerprint(
                         row,
                         target_account_id=acc_id,
@@ -543,10 +622,53 @@ class PluggySyncService:
                         target_card_id="",
                         profile_id=profile_id,
                     ):
+                        row.descricao = cleaned_desc
                         summary.duplicadas_ignoradas += 1
                         continue
+                    row.descricao = cleaned_desc
 
-                    if row.kind == "receita":
+                    kind_low = (row.kind or "").strip().lower()
+                    if kind_low == "transferencia":
+                        dest_name = (row.conta_destino or "").strip()
+                        dest_id = self._find_existing_account_id(dest_name, profile_id) if dest_name else ""
+                        if not dest_id and dest_name:
+                            dest_id = acc_repo.create_account(
+                                descricao=dest_name,
+                                saldo_inicial=0.0,
+                                profile_id=profile_id,
+                                mes_inicial=target_mes,
+                                ano_inicial=target_ano,
+                            )
+                        if dest_id and dest_id != acc_id:
+                            created_ids = tx_service.create_transfer(
+                                descricao=row.descricao,
+                                valor=row.valor,
+                                data=row.data_vencimento,
+                                id_conta_origem=acc_id,
+                                id_conta_destino=dest_id,
+                                profile_id=profile_id,
+                                efetivada=row.efetivada,
+                                data_efetivacao=row.data_efetivacao,
+                                obs=row.observacoes,
+                            )
+                        else:
+                            cat_id, sub_id = self._resolve_or_create_category(
+                                cat_repo, KIND_DESPESA, row.categoria, row.subcategoria, profile_id
+                            )
+                            created_ids = tx_service.create_expense(
+                                descricao=row.descricao,
+                                valor=row.valor,
+                                data_vencimento=row.data_vencimento,
+                                profile_id=profile_id,
+                                id_conta=acc_id,
+                                data_evento=row.data_lancamento,
+                                id_categoria=cat_id,
+                                id_subcategoria=sub_id,
+                                pago=row.efetivada,
+                                data_efetivacao=row.data_efetivacao,
+                                obs=row.observacoes,
+                            )
+                    elif kind_low == "receita":
                         cat_id, sub_id = self._resolve_or_create_category(
                             cat_repo, KIND_RECEITA, row.categoria, row.subcategoria, profile_id
                         )

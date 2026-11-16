@@ -12,7 +12,7 @@ from app.domain.services.ai_service import (
     AIServiceError,
     FinancialHealthReport,
 )
-from app.ui.ai_worker import FinancialHealthWorker
+from app.ui.ai_worker import AICopilotWorker, FinancialHealthWorker
 
 
 def _fake_health_transport(data: Dict[str, Any]):
@@ -173,3 +173,75 @@ def test_financial_health_worker_failure() -> None:
     assert len(results) == 0
     assert len(errors) == 1
     assert "Chave de API do Gemini não configurada" in errors[0]
+
+
+def test_ask_financial_copilot_success_and_validation() -> None:
+    captured_prompts: list[str] = []
+
+    def transport(url: str, headers: Dict[str, str], body: bytes, timeout: int) -> str:
+        decoded = json.loads(body.decode("utf-8"))
+        captured_prompts.append(decoded["contents"][0]["parts"][0]["text"])
+        inner = json.dumps(
+            {"resposta": "Com receita de R$ 5.000,00 e folga de R$ 1.500,00, você pode parcelar."}
+        )
+        return json.dumps({"candidates": [{"content": {"parts": [{"text": inner}]}}]})
+
+    svc = AIService("valid-key", transport=transport)
+    snapshot = {"periodo": "10/2026", "totais": {"receitas": 5000.0, "resultado_liquido": 1500.0}}
+    ans = svc.ask_financial_copilot("Posso parcelar 1.500 em 3x?", snapshot)
+    assert "R$ 1.500,00" in ans
+    assert "Posso parcelar 1.500 em 3x?" in captured_prompts[0]
+    assert "EXCLUSIVA" in captured_prompts[0]
+
+    with pytest.raises(AIServiceError, match="Digite uma pergunta"):
+        svc.ask_financial_copilot("   ", snapshot)
+
+    with pytest.raises(AIServiceError, match="Sem dados financeiros"):
+        svc.ask_financial_copilot("Como estou?", {})
+
+    with pytest.raises(AIServiceError, match="Chave de API do Gemini não configurada"):
+        AIService("").ask_financial_copilot("Como estou?", snapshot)
+
+    bad = AIService("valid-key", transport=lambda *a: "nao-json")
+    with pytest.raises(AIServiceError, match="Resposta da IA em formato inesperado"):
+        bad.ask_financial_copilot("Como estou?", snapshot)
+
+
+def test_ai_copilot_worker_success_and_failure() -> None:
+    svc_ok = AIService(
+        "test-key",
+        transport=_fake_health_transport({"resposta": "Reserva atual dentro da meta de 20%."}),
+    )
+    worker_ok = AICopilotWorker(svc_ok, "Como está minha poupança?", {"periodo": "10/2026"})
+    ok_res: list[str] = []
+    ok_err: list[str] = []
+    worker_ok.succeeded.connect(ok_res.append)
+    worker_ok.failed.connect(ok_err.append)
+    worker_ok.run()
+    assert ok_res == ["Reserva atual dentro da meta de 20%."]
+    assert ok_err == []
+
+    worker_fail = AICopilotWorker(AIService(""), "Como está minha poupança?", {"periodo": "10/2026"})
+    fail_res: list[str] = []
+    fail_err: list[str] = []
+    worker_fail.succeeded.connect(fail_res.append)
+    worker_fail.failed.connect(fail_err.append)
+    worker_fail.run()
+    assert fail_res == []
+    assert "Chave de API do Gemini não configurada" in fail_err[0]
+
+
+def test_financial_health_report_to_dict_and_from_dict() -> None:
+    original = FinancialHealthReport(
+        score_saude=88,
+        resumo="Saúde positiva.",
+        essenciais_pct=42.5,
+        estilo_vida_pct=22.5,
+        poupanca_pct=35.0,
+        comentario_regra="Tudo equilibrado.",
+        alertas_anomalias=["Streaming subiu 15%."],
+        projecao_fechamento="Fechamento positivo.",
+        recomendacoes_praticas=["Aportar na reserva."],
+    )
+    cloned = FinancialHealthReport.from_dict(original.to_dict())
+    assert cloned == original

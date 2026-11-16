@@ -126,6 +126,31 @@ DYNAMIC_TABLES_DDL: List[str] = [
         "imported_at" TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS "regras_categorizacao_ia" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "id_profile" TEXT NOT NULL DEFAULT '1',
+        "padrao_normalizado" TEXT NOT NULL,
+        "tipo" TEXT NOT NULL,
+        "id_categoria" TEXT,
+        "id_conta" TEXT,
+        "id_cartao" TEXT,
+        "descricao_limpa" TEXT,
+        "updated_at" TEXT NOT NULL,
+        UNIQUE("id_profile", "padrao_normalizado", "tipo")
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS "ai_health_reports" (
+        "id_profile" TEXT NOT NULL DEFAULT '1',
+        "ano" INTEGER NOT NULL,
+        "mes" INTEGER NOT NULL,
+        "score_saude" INTEGER NOT NULL,
+        "report_json" TEXT NOT NULL,
+        "updated_at" TEXT NOT NULL,
+        PRIMARY KEY ("id_profile", "ano", "mes")
+    )
+    """,
 ]
 
 # Índices adicionais de performance
@@ -141,6 +166,8 @@ DYNAMIC_INDEXES_DDL: List[str] = [
     "CREATE INDEX IF NOT EXISTS idx_orcamentos_data_criacao ON orcamentos(data_criacao)",
     "CREATE INDEX IF NOT EXISTS idx_tags_transacoes_lookup ON tags_transacoes(id_transacao, tipo_transacao)",
     "CREATE INDEX IF NOT EXISTS idx_tags_profile ON tags(id_profile)",
+    "CREATE INDEX IF NOT EXISTS idx_regras_cat_ia_lookup ON regras_categorizacao_ia(id_profile, padrao_normalizado, tipo)",
+    "CREATE INDEX IF NOT EXISTS idx_ai_health_reports_lookup ON ai_health_reports(id_profile, ano, mes)",
 ]
 
 # Colunas adicionadas por migrações em tempo de execução sobre as tabelas base

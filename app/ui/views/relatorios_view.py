@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -34,7 +35,7 @@ from app.database.connection_manager import ConnectionManager
 from app.domain.models import KIND_DESPESA, KIND_RECEITA
 from app.domain.services.ai_service import AIService, FinancialHealthReport
 from app.domain.services.analytics_service import AnalyticsService, FinancialHealthData
-from app.ui.ai_worker import FinancialHealthWorker
+from app.ui.ai_worker import AICopilotWorker, FinancialHealthWorker
 from app.ui.bank_icons import create_color_badge_icon
 from app.ui.components import Badge, EmptyStateWidget, KpiCard
 from app.ui.icons import get_line_icon, get_line_pixmap
@@ -61,7 +62,9 @@ class FinancialHealthPanel(QWidget):
         self.month = 10
         self.year = 2026
         self._current_report: Optional[FinancialHealthReport] = None
+        self._current_health_data: Optional[FinancialHealthData] = None
         self._worker: Optional[FinancialHealthWorker] = None
+        self._copilot_worker: Optional[AICopilotWorker] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -195,6 +198,14 @@ class FinancialHealthPanel(QWidget):
 
         self.badge_score_status = Badge("Excelente", "success")
         sc_lay.addWidget(self.badge_score_status, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_score_delta = QLabel("")
+        self.lbl_score_delta.setObjectName("MutedText")
+        self.lbl_score_delta.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_score_delta.setStyleSheet("font-size: 11px; font-weight: 600; margin-top: 4px;")
+        self.lbl_score_delta.setVisible(False)
+        sc_lay.addWidget(self.lbl_score_delta, alignment=Qt.AlignmentFlag.AlignCenter)
+
         top_res_row.addWidget(self.score_card)
 
         # Card do Resumo Executivo
@@ -341,27 +352,124 @@ class FinancialHealthPanel(QWidget):
         self.results_widget.setVisible(False)
         self.content_lay.addWidget(self.results_widget)
 
+        # 4. Card de Projeção de Caixa 30/60/90d & Radares Proativos (Local)
+        self.proactive_card = QFrame()
+        self.proactive_card.setObjectName("CardSurface")
+        pr_card_lay = QVBoxLayout(self.proactive_card)
+        pr_card_lay.setContentsMargins(20, 16, 20, 16)
+        pr_card_lay.setSpacing(10)
+
+        lbl_pro_head = QLabel("Projeção de Caixa (30 / 60 / 90 dias) & Radar Proativo")
+        lbl_pro_head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        pr_card_lay.addWidget(lbl_pro_head)
+
+        horiz_row = QHBoxLayout()
+        horiz_row.setSpacing(12)
+        self.lbl_cash_30d = QLabel("30 dias: —")
+        self.lbl_cash_60d = QLabel("60 dias: —")
+        self.lbl_cash_90d = QLabel("90 dias: —")
+        for lbl_cash in (self.lbl_cash_30d, self.lbl_cash_60d, self.lbl_cash_90d):
+            lbl_cash.setWordWrap(True)
+            lbl_cash.setStyleSheet(
+                "background-color: rgba(123, 129, 144, 0.08); border-radius: 8px; "
+                "padding: 10px 14px; font-weight: 500; font-size: 13px;"
+            )
+            horiz_row.addWidget(lbl_cash, 1)
+        pr_card_lay.addLayout(horiz_row)
+
+        self.lbl_proactive_alerts = QLabel("")
+        self.lbl_proactive_alerts.setObjectName("MutedText")
+        self.lbl_proactive_alerts.setWordWrap(True)
+        self.lbl_proactive_alerts.setStyleSheet("font-size: 12px;")
+        pr_card_lay.addWidget(self.lbl_proactive_alerts)
+        self.content_lay.addWidget(self.proactive_card)
+
+        # 5. Card "Pergunte ao Copiloto Plutos" (Somente Leitura)
+        self.copilot_card = QFrame()
+        self.copilot_card.setObjectName("CardSurface")
+        cp_lay = QVBoxLayout(self.copilot_card)
+        cp_lay.setContentsMargins(20, 16, 20, 16)
+        cp_lay.setSpacing(10)
+
+        lbl_cp_head = QLabel("Pergunte ao Copiloto Plutos")
+        lbl_cp_head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        lbl_cp_sub = QLabel(
+            "Faça perguntas diretas sobre seus números agregados (análise consultiva, sem alterar lançamentos)."
+        )
+        lbl_cp_sub.setObjectName("MutedText")
+        lbl_cp_sub.setWordWrap(True)
+        cp_lay.addWidget(lbl_cp_head)
+        cp_lay.addWidget(lbl_cp_sub)
+
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(8)
+        self.copilot_chips: list[QPushButton] = []
+        for q_text in (
+            "Posso parcelar uma compra de R$ 1.500?",
+            "Quais gastos mais subiram neste trimestre?",
+            "Como atingir 20% de poupança neste mês?",
+        ):
+            chip = QPushButton(q_text)
+            chip.setObjectName("SecondaryButton")
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.clicked.connect(
+                lambda _checked=False, qt=q_text: self._on_ask_copilot_clicked(qt)
+            )
+            chips_row.addWidget(chip)
+            self.copilot_chips.append(chip)
+        chips_row.addStretch()
+        cp_lay.addLayout(chips_row)
+
+        ask_row = QHBoxLayout()
+        ask_row.setSpacing(10)
+        self.txt_copilot_question = QLineEdit()
+        self.txt_copilot_question.setPlaceholderText(
+            "Ex.: Quanto posso gastar por semana até fechar o mês no positivo?"
+        )
+        self.txt_copilot_question.setMinimumHeight(34)
+        self.txt_copilot_question.returnPressed.connect(
+            lambda: self._on_ask_copilot_clicked()
+        )
+        ask_row.addWidget(self.txt_copilot_question, 1)
+
+        self.btn_ask_copilot = QPushButton("Perguntar ao Copiloto")
+        self.btn_ask_copilot.setObjectName("PrimaryButton")
+        self.btn_ask_copilot.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_ask_copilot.setMinimumHeight(34)
+        self.btn_ask_copilot.clicked.connect(lambda: self._on_ask_copilot_clicked())
+        ask_row.addWidget(self.btn_ask_copilot)
+        cp_lay.addLayout(ask_row)
+
+        self.lbl_copilot_answer = QLabel("")
+        self.lbl_copilot_answer.setWordWrap(True)
+        self.lbl_copilot_answer.setVisible(False)
+        self.lbl_copilot_answer.setStyleSheet(
+            "background-color: rgba(123, 129, 144, 0.08); border-radius: 8px; "
+            "padding: 10px 14px; font-size: 13px;"
+        )
+        cp_lay.addWidget(self.lbl_copilot_answer)
+        self.content_lay.addWidget(self.copilot_card)
+
         scroll.setWidget(content)
         root_lay.addWidget(scroll)
 
     def load_context(self, profile_id: str, month: int, year: int) -> None:
-        """Atualiza o período de referência e atualiza a prévia local calculada."""
+        """Atualiza o período de referência, projeção 30/60/90d e histórico salvo no SQLite."""
+        prev_ctx = getattr(self, "_loaded_context_key", None)
+        new_ctx = (profile_id, month, year)
         self.profile_id = profile_id
         self.month = month
         self.year = year
+        self._loaded_context_key = new_ctx
 
-        # Se já temos relatório do mesmo período, mantém exibido; caso contrário reseta para estado inicial
-        if (
-            self._current_report is not None
-            and getattr(self, "_report_period", None) != (month, year)
-        ):
-            self._current_report = None
-            self.results_widget.setVisible(False)
-            self.empty_card.setVisible(True)
+        if prev_ctx is not None and prev_ctx != new_ctx:
+            self.lbl_copilot_answer.setVisible(False)
+            self.lbl_copilot_answer.setText("")
 
         health_data = self.analytics.get_financial_health_summary(
             self.year, self.month, profile_id=self.profile_id
         )
+        self._current_health_data = health_data
 
         self.lbl_empty_title.setText(
             f"Pronto para diagnosticar suas finanças de {self.month:02d}/{self.year}"
@@ -369,6 +477,59 @@ class FinancialHealthPanel(QWidget):
         self.lbl_p_ess.setText(f"🟢 Essenciais: {health_data.percentual_essenciais:.1f}%")
         self.lbl_p_est.setText(f"🟡 Estilo de Vida: {health_data.percentual_estilo_vida:.1f}%")
         self.lbl_p_pou.setText(f"🔵 Poupança/Investimento: {health_data.percentual_poupanca:.1f}%")
+        self._update_proactive_cards(health_data)
+
+        saved_report = self.analytics.load_health_report(
+            self.year, self.month, profile_id=self.profile_id
+        )
+        if saved_report is not None:
+            self._render_report(saved_report, from_cache=True)
+        else:
+            self._current_report = None
+            self.btn_generate.setText("✨ Gerar Diagnóstico IA")
+            self.lbl_status.setText("")
+            self.results_widget.setVisible(False)
+            self.empty_card.setVisible(True)
+
+    def _update_proactive_cards(self, health_data: FinancialHealthData) -> None:
+        labels = (self.lbl_cash_30d, self.lbl_cash_60d, self.lbl_cash_90d)
+        horiz_names = ("30 dias", "60 dias", "90 dias")
+        for idx, lbl in enumerate(labels):
+            if idx < len(health_data.projecao_caixa_30_60_90):
+                item = health_data.projecao_caixa_30_60_90[idx]
+                saldo_p = format_currency(float(item.get("saldo_projetado", 0.0)))
+                fatura_p = format_currency(float(item.get("faturas_cartao", 0.0)))
+                per_p = item.get("periodo", "")
+                lbl.setText(
+                    f"{horiz_names[idx]} ({per_p})\nSaldo: {saldo_p} | Fatura: {fatura_p}"
+                )
+            else:
+                lbl.setText(f"{horiz_names[idx]}: —")
+
+        radar_parts: list[str] = []
+        n_orc = len(health_data.orcamentos_em_risco)
+        if n_orc:
+            radar_parts.append(
+                f"{n_orc} orçamento{'s' if n_orc != 1 else ''} em alerta/estouro no mês"
+            )
+        fut_cards = [
+            float(c.get("total_faturas", 0.0))
+            for c in health_data.comprometimento_cartoes_futuro
+            if float(c.get("total_faturas", 0.0)) > 0
+        ]
+        if fut_cards:
+            total_fut = format_currency(sum(fut_cards))
+            radar_parts.append(f"Faturas comprometidas (próx. 90d): {total_fut}")
+        n_goals = len(health_data.objetivos_ativos)
+        if n_goals:
+            radar_parts.append(
+                f"{n_goals} objetivo{'s' if n_goals != 1 else ''} ativo{'s' if n_goals != 1 else ''} em andamento"
+            )
+        self.lbl_proactive_alerts.setText(
+            " • ".join(radar_parts)
+            if radar_parts
+            else "Nenhum alerta de orçamento ou fatura futura crítica detectado no período."
+        )
 
     def _on_generate_clicked(self) -> None:
         key, _src = key_store.resolve_gemini_key(self.db.settings.user_data_dir)
@@ -385,6 +546,7 @@ class FinancialHealthPanel(QWidget):
         health_data = self.analytics.get_financial_health_summary(
             self.year, self.month, profile_id=self.profile_id
         )
+        self._current_health_data = health_data
         payload = health_data.to_ai_payload()
 
         service = AIService(key, model=self.db.settings.gemini_model)
@@ -394,14 +556,26 @@ class FinancialHealthPanel(QWidget):
         self._worker.start()
 
     def _on_worker_success(self, report: FinancialHealthReport) -> None:
+        self.analytics.save_health_report(
+            self.year, self.month, report, profile_id=self.profile_id
+        )
+        self._render_report(report, from_cache=False)
+
+    def _render_report(
+        self, report: FinancialHealthReport, *, from_cache: bool = False
+    ) -> None:
         self._current_report = report
         self._report_period = (self.month, self.year)
         self.btn_generate.setEnabled(True)
         self.btn_generate.setText("✨ Atualizar Diagnóstico IA")
-        self.lbl_status.setText("Diagnóstico concluído com sucesso!")
-        self.lbl_status.setStyleSheet("color: #1F9D6A;")
+        if from_cache:
+            self.lbl_status.setText("Diagnóstico carregado do histórico local.")
+            self.lbl_status.setStyleSheet("color: #7B8190;")
+        else:
+            self.lbl_status.setText("Diagnóstico concluído com sucesso!")
+            self.lbl_status.setStyleSheet("color: #1F9D6A;")
 
-        # 1. Score e Resumo
+        # 1. Score, Delta vs Mês Anterior e Resumo
         self.lbl_score_num.setText(str(report.score_saude))
         if report.score_saude >= 70:
             self.lbl_score_num.setStyleSheet("font-size: 42px; font-weight: 800; color: #1F9D6A;")
@@ -415,6 +589,30 @@ class FinancialHealthPanel(QWidget):
             self.lbl_score_num.setStyleSheet("font-size: 42px; font-weight: 800; color: #D64545;")
             self.badge_score_status.setText("Crítico")
             self.badge_score_status.set_variant("danger")
+
+        prev_score = self.analytics.get_previous_health_score(
+            self.year, self.month, profile_id=self.profile_id
+        )
+        if prev_score is not None:
+            delta = report.score_saude - prev_score
+            if delta > 0:
+                self.lbl_score_delta.setText(f"▲ +{delta} pts vs. mês anterior")
+                self.lbl_score_delta.setStyleSheet(
+                    "color: #1F9D6A; font-size: 11px; font-weight: 600; margin-top: 4px;"
+                )
+            elif delta < 0:
+                self.lbl_score_delta.setText(f"▼ {delta} pts vs. mês anterior")
+                self.lbl_score_delta.setStyleSheet(
+                    "color: #D64545; font-size: 11px; font-weight: 600; margin-top: 4px;"
+                )
+            else:
+                self.lbl_score_delta.setText("• 0 pts vs. mês anterior")
+                self.lbl_score_delta.setStyleSheet(
+                    "color: #7B8190; font-size: 11px; font-weight: 600; margin-top: 4px;"
+                )
+            self.lbl_score_delta.setVisible(True)
+        else:
+            self.lbl_score_delta.setVisible(False)
 
         self.lbl_summary_text.setText(report.resumo)
 
@@ -445,33 +643,44 @@ class FinancialHealthPanel(QWidget):
         if report.alertas_anomalias:
             for alerta in report.alertas_anomalias:
                 f = QFrame()
+                f.setObjectName("HealthAlertFrame")
                 f.setStyleSheet(
-                    "background-color: rgba(230, 138, 0, 0.08); border-left: 3px solid #E68A00; "
-                    "border-radius: 6px; padding: 6px 10px;"
+                    "QFrame#HealthAlertFrame { background-color: rgba(230, 138, 0, 0.08); "
+                    "border-left: 3px solid #E68A00; border-radius: 6px; }"
                 )
                 flay = QHBoxLayout(f)
-                flay.setContentsMargins(4, 4, 4, 4)
-                flay.setSpacing(8)
+                flay.setContentsMargins(12, 8, 12, 8)
+                flay.setSpacing(10)
                 lbl_ico = QLabel("⚠️")
+                lbl_ico.setStyleSheet(
+                    "background: transparent; border: none; padding: 0px; font-size: 14px;"
+                )
                 lbl_txt = QLabel(alerta)
                 lbl_txt.setWordWrap(True)
-                lbl_txt.setStyleSheet("font-size: 13px;")
+                lbl_txt.setStyleSheet(
+                    "background: transparent; border: none; padding: 0px; font-size: 13px;"
+                )
                 flay.addWidget(lbl_ico)
                 flay.addWidget(lbl_txt, 1)
                 self.alerts_list_lay.addWidget(f)
         else:
             f = QFrame()
+            f.setObjectName("HealthAlertOkFrame")
             f.setStyleSheet(
-                "background-color: rgba(31, 157, 106, 0.08); border-left: 3px solid #1F9D6A; "
-                "border-radius: 6px; padding: 6px 10px;"
+                "QFrame#HealthAlertOkFrame { background-color: rgba(31, 157, 106, 0.08); "
+                "border-left: 3px solid #1F9D6A; border-radius: 6px; }"
             )
             flay = QHBoxLayout(f)
-            flay.setContentsMargins(4, 4, 4, 4)
+            flay.setContentsMargins(12, 8, 12, 8)
             flay.setSpacing(8)
             lbl_ico = QLabel("✓")
-            lbl_ico.setStyleSheet("color: #1F9D6A; font-weight: bold;")
+            lbl_ico.setStyleSheet(
+                "background: transparent; border: none; padding: 0px; color: #1F9D6A; font-weight: bold;"
+            )
             lbl_txt = QLabel("Nenhuma anomalia de gastos detectada em relação à média recente.")
-            lbl_txt.setStyleSheet("font-size: 13px; color: #1F9D6A;")
+            lbl_txt.setStyleSheet(
+                "background: transparent; border: none; padding: 0px; font-size: 13px; color: #1F9D6A;"
+            )
             flay.addWidget(lbl_ico)
             flay.addWidget(lbl_txt, 1)
             self.alerts_list_lay.addWidget(f)
@@ -487,22 +696,27 @@ class FinancialHealthPanel(QWidget):
 
         for idx, rec in enumerate(report.recomendacoes_praticas, start=1):
             rf = QFrame()
+            rf.setObjectName("HealthRecFrame")
             rf.setStyleSheet(
-                "background-color: rgba(123, 129, 144, 0.06); border-radius: 8px; padding: 8px 12px;"
+                "QFrame#HealthRecFrame { background-color: rgba(123, 129, 144, 0.08); "
+                "border-radius: 8px; }"
             )
             rflay = QHBoxLayout(rf)
-            rflay.setContentsMargins(4, 4, 4, 4)
-            rflay.setSpacing(10)
+            rflay.setContentsMargins(12, 10, 12, 10)
+            rflay.setSpacing(12)
 
             lbl_num = QLabel(str(idx))
-            lbl_num.setFixedSize(22, 22)
+            lbl_num.setFixedSize(24, 24)
             lbl_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl_num.setStyleSheet(
-                "background-color: #E5603D; color: #FFFFFF; font-weight: 700; border-radius: 11px; font-size: 11px;"
+                "background-color: #E5603D; color: #FFFFFF; font-weight: 700; "
+                "border-radius: 12px; font-size: 12px; padding: 0px; border: none;"
             )
             lbl_rec_txt = QLabel(rec)
             lbl_rec_txt.setWordWrap(True)
-            lbl_rec_txt.setStyleSheet("font-size: 13px;")
+            lbl_rec_txt.setStyleSheet(
+                "background: transparent; border: none; padding: 0px; font-size: 13px;"
+            )
 
             rflay.addWidget(lbl_num)
             rflay.addWidget(lbl_rec_txt, 1)
@@ -516,6 +730,73 @@ class FinancialHealthPanel(QWidget):
         self.btn_generate.setText("✨ Tentar Novamente")
         self.lbl_status.setText(f"Erro: {error_msg}")
         self.lbl_status.setStyleSheet("color: #D64545; font-weight: 500;")
+
+    def _on_ask_copilot_clicked(self, preset_question: Optional[str] = None) -> None:
+        if preset_question:
+            self.txt_copilot_question.setText(preset_question)
+        question = self.txt_copilot_question.text().strip()
+        if not question:
+            self.lbl_copilot_answer.setText("Digite uma pergunta para consultar o Copiloto.")
+            self.lbl_copilot_answer.setStyleSheet(
+                "background-color: rgba(214, 69, 69, 0.08); color: #D64545; "
+                "border-radius: 8px; padding: 10px 14px; font-size: 13px;"
+            )
+            self.lbl_copilot_answer.setVisible(True)
+            return
+
+        key, _src = key_store.resolve_gemini_key(self.db.settings.user_data_dir)
+        if not key:
+            self.lbl_copilot_answer.setText(
+                "Chave Gemini não configurada (Configurações → IA)."
+            )
+            self.lbl_copilot_answer.setStyleSheet(
+                "background-color: rgba(214, 69, 69, 0.08); color: #D64545; "
+                "border-radius: 8px; padding: 10px 14px; font-size: 13px;"
+            )
+            self.lbl_copilot_answer.setVisible(True)
+            return
+
+        self.btn_ask_copilot.setEnabled(False)
+        self.btn_ask_copilot.setText("Consultando...")
+        self.lbl_copilot_answer.setText("Analisando seus dados agregados locais...")
+        self.lbl_copilot_answer.setStyleSheet(
+            "background-color: rgba(123, 129, 144, 0.08); border-radius: 8px; "
+            "padding: 10px 14px; font-size: 13px;"
+        )
+        self.lbl_copilot_answer.setVisible(True)
+
+        health_data = self._current_health_data or self.analytics.get_financial_health_summary(
+            self.year, self.month, profile_id=self.profile_id
+        )
+        snapshot = health_data.to_ai_payload()
+        if self._current_report is not None:
+            snapshot["ultimo_diagnostico"] = self._current_report.to_dict()
+
+        service = AIService(key, model=self.db.settings.gemini_model)
+        self._copilot_worker = AICopilotWorker(service, question, snapshot, parent=self)
+        self._copilot_worker.succeeded.connect(self._on_copilot_success)
+        self._copilot_worker.failed.connect(self._on_copilot_error)
+        self._copilot_worker.start()
+
+    def _on_copilot_success(self, answer: str) -> None:
+        self.btn_ask_copilot.setEnabled(True)
+        self.btn_ask_copilot.setText("Perguntar ao Copiloto")
+        self.lbl_copilot_answer.setStyleSheet(
+            "background-color: rgba(31, 157, 106, 0.08); border-left: 3px solid #1F9D6A; "
+            "border-radius: 8px; padding: 10px 14px; font-size: 13px;"
+        )
+        self.lbl_copilot_answer.setText(answer)
+        self.lbl_copilot_answer.setVisible(True)
+
+    def _on_copilot_error(self, error_msg: str) -> None:
+        self.btn_ask_copilot.setEnabled(True)
+        self.btn_ask_copilot.setText("Perguntar ao Copiloto")
+        self.lbl_copilot_answer.setStyleSheet(
+            "background-color: rgba(214, 69, 69, 0.08); color: #D64545; "
+            "border-radius: 8px; padding: 10px 14px; font-size: 13px;"
+        )
+        self.lbl_copilot_answer.setText(f"Erro: {error_msg}")
+        self.lbl_copilot_answer.setVisible(True)
 
 
 class RelatoriosView(QWidget):

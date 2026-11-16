@@ -15,7 +15,7 @@ import re
 import uuid
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from app.database.connection_manager import ConnectionManager
 from app.database.repositories.account_repository import AccountRepository
@@ -29,6 +29,10 @@ from app.domain.models import (
     REC_PARCELADA,
     REC_UNICA,
     Occurrence,
+)
+from app.domain.services.ai_entry_service import (
+    enrich_canonical_rows_with_rules_and_ai,
+    reconcile_self_transfers_in_rows,
 )
 from app.domain.services.analytics_service import AnalyticsService
 from app.domain.services.credit_card_service import CreditCardService
@@ -299,6 +303,9 @@ class DataIOOrchestrator:
         default_kind: str = KIND_DESPESA,
         mapping: Optional[CSVColumnMapping] = None,
         skip_duplicates: bool = True,
+        enrich_categories: bool = True,
+        use_ai_categorization: bool = False,
+        ai_service: Optional[Any] = None,
     ) -> ImportReport:
         """
         Importa um arquivo `.csv` ou `.xlsx` para o banco SQLite, resolvendo categorias,
@@ -325,6 +332,19 @@ class DataIOOrchestrator:
             format_type=fmt_type,
             total_rows_read=len(rows),
         )
+
+        raw_descriptions: Dict[int, str] = {id(r): r.descricao for r in rows}
+        report.reconciled_transfers_count = reconcile_self_transfers_in_rows(rows)
+        if enrich_categories or use_ai_categorization:
+            loc_hits, ai_hits = enrich_canonical_rows_with_rules_and_ai(
+                self.db,
+                rows,
+                profile_id=profile_id,
+                ai_service=ai_service,
+                use_ai=use_ai_categorization,
+            )
+            report.categorized_local_count = loc_hits
+            report.categorized_ai_count = ai_hits
 
         series_origins: Dict[Tuple[str, str, int, float], str] = {}
 
@@ -424,6 +444,11 @@ class DataIOOrchestrator:
                     else:
                         acc_id = self._resolve_account_id(row.conta, target_account_id, profile_id)
 
+                raw_desc = raw_descriptions.get(id(row), row.descricao)
+                cleaned_desc = row.descricao
+                if raw_desc != cleaned_desc:
+                    row.descricao = raw_desc
+
                 compute_row_fingerprint(
                     row,
                     target_account_id=acc_id or "",
@@ -437,8 +462,11 @@ class DataIOOrchestrator:
                     target_card_id=card_id or "",
                     profile_id=profile_id,
                 ):
+                    row.descricao = cleaned_desc
                     report.skipped_duplicates += 1
                     continue
+
+                row.descricao = cleaned_desc
 
                 tag_ids = self._resolve_tag_ids(row.tags, profile_id)
                 kind_upper = (row.kind or default_kind).upper()

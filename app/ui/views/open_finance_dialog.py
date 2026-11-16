@@ -24,8 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config import ai_key_store
 from app.config.theme_palette import EXPENSE_RED, INCOME_GREEN, PRIMARY_BLUE, ThemePalette
 from app.database.connection_manager import ConnectionManager
+from app.domain.services.ai_service import AIService
 from app.services.pluggy_client import (
     PluggyClient,
     PluggyConfigManager,
@@ -279,6 +281,12 @@ class OpenFinanceSyncDialog(QDialog):
         self.chk_reconcile.setChecked(True)
         rev_lay.addWidget(self.chk_reconcile)
 
+        self.chk_ai_enrich = QCheckBox(
+            "Categorizar lançamentos e conciliar transferências automaticamente (Regras Locais + IA)"
+        )
+        self.chk_ai_enrich.setChecked(True)
+        rev_lay.addWidget(self.chk_ai_enrich)
+
         self.stack.addWidget(page_review)
         root.addWidget(self.stack, stretch=1)
 
@@ -346,6 +354,10 @@ class OpenFinanceSyncDialog(QDialog):
 
     def _on_worker_ready(self, batches: list) -> None:
         self._batches = batches
+        if self.chk_ai_enrich.isChecked():
+            self.sync_service.enrich_batches(
+                batches, profile_id=self.profile_id, use_ai=False
+            )
         self.badge_state.setText("Pronto para Revisão")
         self.populate_review_tables(batches)
         self.stack.setCurrentIndex(1)
@@ -423,11 +435,16 @@ class OpenFinanceSyncDialog(QDialog):
             it_cat = QTableWidgetItem(tx.categoria or "Outros")
             self.table_txs.setItem(idx, 3, it_cat)
 
-            is_rec = tx.kind.lower() == "receita"
-            k_badge = Badge(
-                "Receita" if is_rec else "Despesa",
-                variant="success" if is_rec else "danger",
-            )
+            kind_low = tx.kind.lower()
+            is_rec = kind_low == "receita"
+            is_tr = kind_low == "transferencia"
+            if is_tr:
+                k_badge = Badge("Transferência", variant="neutral")
+            else:
+                k_badge = Badge(
+                    "Receita" if is_rec else "Despesa",
+                    variant="success" if is_rec else "danger",
+                )
             kw = QWidget()
             klay = QHBoxLayout(kw)
             klay.setContentsMargins(0, 0, 0, 0)
@@ -439,7 +456,12 @@ class OpenFinanceSyncDialog(QDialog):
             f_v = it_val.font()
             f_v.setBold(True)
             it_val.setFont(f_v)
-            it_val.setForeground(QColor(INCOME_GREEN if is_rec else EXPENSE_RED))
+            val_color = (
+                pal.transfer_indigo
+                if is_tr
+                else (INCOME_GREEN if is_rec else EXPENSE_RED)
+            )
+            it_val.setForeground(QColor(val_color))
             self.table_txs.setItem(idx, 5, it_val)
 
         self.stack.setCurrentIndex(1)
@@ -450,14 +472,31 @@ class OpenFinanceSyncDialog(QDialog):
             return
         self.btn_apply.setEnabled(False)
         try:
+            ai_svc: Optional[AIService] = None
+            enrich_ai = False
+            if self.chk_ai_enrich.isChecked():
+                key, _src = ai_key_store.resolve_gemini_key(self.db.settings.user_data_dir)
+                if key:
+                    ai_svc = AIService(key, model=self.db.settings.gemini_model)
+                    enrich_ai = True
+
             self.apply_summary = self.sync_service.apply_sync_results(
                 self._batches,
                 profile_id=self.profile_id,
                 mes=self.mes,
                 ano=self.ano,
                 reconcile_balances=self.chk_reconcile.isChecked(),
+                enrich_with_ai=enrich_ai,
+                ai_service=ai_svc,
             )
             s = self.apply_summary
+            extra_lines = ""
+            if s.categorizadas_regras_locais or s.categorizadas_ia or s.transferencias_conciliadas:
+                extra_lines = (
+                    f"\n• Categorizadas (regras locais / IA): "
+                    f"{s.categorizadas_regras_locais} / {s.categorizadas_ia}\n"
+                    f"• Transferências conciliadas: {s.transferencias_conciliadas}"
+                )
             QMessageBox.information(
                 self,
                 "Sincronização Concluída",
@@ -466,7 +505,8 @@ class OpenFinanceSyncDialog(QDialog):
                 f"• Investimentos sincronizados: {s.investimentos_atualizados}\n"
                 f"• Cartões sincronizados: {s.cartoes_sincronizados}\n"
                 f"• Novos lançamentos importados: {s.transacoes_importadas}\n"
-                f"• Duplicados ignorados: {s.duplicadas_ignoradas}",
+                f"• Duplicados ignorados: {s.duplicadas_ignoradas}"
+                f"{extra_lines}",
             )
             self.accept()
         except Exception as exc:

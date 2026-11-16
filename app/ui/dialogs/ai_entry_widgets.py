@@ -9,13 +9,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from PySide6.QtCore import QDate, QEvent, QSize, Qt, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QDate, QEvent, QIODevice, QSize, Qt, Signal
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
+    QApplication,
     QCalendarWidget,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,6 +27,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -308,7 +312,10 @@ class EntryViewModel:
     destination_account_id: Optional[str] = None
     card_id: Optional[str] = None
     category_id: Optional[str] = None
-    fallback_fields: Set[str] = field(default_factory=set)  # {"account", "category"}
+    fallback_fields: Set[str] = field(default_factory=set)  # {"account", "category", "destination"}
+    num_parcelas: int = 1
+    valor_por_parcela: bool = False
+    recorrente_mensal: bool = False
 
 
 @dataclass
@@ -358,8 +365,9 @@ class PillButton(QPushButton):
         variant: str = "default",
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(text, parent)
+        super().__init__(self._elide_text(text), parent)
         self.setObjectName("EntryPill")
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._raw_text = text
         self._icon_name = icon_name
@@ -371,10 +379,22 @@ class PillButton(QPushButton):
         self.setToolTip(text)
         self.apply_palette(palette)
 
+    @staticmethod
+    def _elide_text(text: str, max_chars: int = 26) -> str:
+        """Trunca textos longos na pílula mantendo o valor completo no tooltip."""
+        clean = (text or "").strip()
+        if len(clean) <= max_chars:
+            return clean
+        return clean[: max_chars - 1].rstrip() + "…"
+
     def set_pill_text(self, text: str) -> None:
         self._raw_text = text
         self.setToolTip(text)
-        self.setText(text)
+        self.setText(self._elide_text(text))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        sh = super().minimumSizeHint()
+        return QSize(min(sh.width(), 175), sh.height())
 
     def apply_palette(self, p: ThemePalette) -> None:
         self._p = p
@@ -462,9 +482,18 @@ class EntryCard(QFrame):
             efetivada=self.vm.effective,
             id_conta_destino=self.vm.destination_account_id,
             campos_fallback=set(self.vm.fallback_fields),
+            num_parcelas=self.vm.num_parcelas,
+            valor_por_parcela=self.vm.valor_por_parcela,
+            recorrente_mensal=self.vm.recorrente_mensal,
         )
 
     # -- helpers de rótulos e cores ----------------------------------------- #
+    def _recurrence_text(self) -> str:
+        if self.vm.recorrente_mensal:
+            return "Fixa mensal"
+        if self.vm.num_parcelas > 1:
+            return f"{self.vm.num_parcelas}x"
+        return "1x (À vista)"
     def _kind_text(self) -> str:
         if self.vm.kind == KIND_RECEITA:
             return "RECEITA"
@@ -502,6 +531,7 @@ class EntryCard(QFrame):
     # -- construção ---------------------------------------------------------- #
     def _build(self) -> None:
         p = self._p
+        self.setMinimumWidth(0)
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 14, 16, 14)
         root.setSpacing(6)
@@ -534,15 +564,17 @@ class EntryCard(QFrame):
         # Linha 2: Descrição editável (15px semibold, ocupa toda a largura)
         self.ed_title = QLineEdit(self.vm.description)
         self.ed_title.setObjectName("EntryTitleEdit")
+        self.ed_title.setMinimumWidth(0)
         self.ed_title.setPlaceholderText("Descrição do lançamento")
         self.ed_title.editingFinished.connect(self._on_title)
         root.addWidget(self.ed_title)
 
         root.addSpacing(2)
 
-        # Linha 3: Pílulas de Origem, Destino/Categoria, Data (e Na fatura para cartão)
-        line3 = QHBoxLayout()
-        line3.setSpacing(8)
+        # Linha 3: Pílulas principais (Origem, Destino/Categoria e Data — máx. 3 pílulas)
+        self._line3 = QHBoxLayout()
+        self._line3.setSpacing(8)
+        line3 = self._line3
 
         # 1. Pílula de Origem (Conta ou Cartão)
         if self.vm.card_id:
@@ -607,7 +639,21 @@ class EntryCard(QFrame):
         self.pill_date.clicked.connect(self._pick_date)
         line3.addWidget(self.pill_date)
 
-        # 5. Pílula de Status (Na fatura quando cartão fica na linha 3)
+        line3.addStretch()
+        root.addLayout(line3)
+
+        # Linha 4: Recorrência/Parcelamento + Status (Pago/Recebido/Na fatura) + Botão 'x'
+        self._line4 = QHBoxLayout()
+        self._line4.setSpacing(8)
+        line4 = self._line4
+
+        # 5. Pílula de Recorrência / Parcelamento (Despesas e Receitas)
+        if self.vm.kind != KIND_TRANSFERENCIA:
+            self.pill_rec = PillButton(self._recurrence_text(), "refresh", p)
+            self.pill_rec.clicked.connect(self._pick_recurrence)
+            line4.addWidget(self.pill_rec)
+
+        # 6. Pílula de Status (Pago/Recebido/Efetivada ou Na fatura para cartão)
         st_icon = "clock" if self.vm.card_id else "check"
         st_variant = (
             "outline"
@@ -625,17 +671,7 @@ class EntryCard(QFrame):
             self.pill_status.clicked.connect(self._toggle_status)
         else:
             self.pill_status.setToolTip("Lançamentos no cartão são computados na fatura")
-            line3.addWidget(self.pill_status)
-
-        line3.addStretch()
-        root.addLayout(line3)
-
-        # Linha 4: Pílula de Status (Pago/Recebido) à esquerda e Botão 'x' à direita
-        line4 = QHBoxLayout()
-        line4.setSpacing(8)
-
-        if not self.vm.card_id:
-            line4.addWidget(self.pill_status)
+        line4.addWidget(self.pill_status)
 
         line4.addStretch()
 
@@ -716,6 +752,37 @@ class EntryCard(QFrame):
         menu.addAction(action)
         menu.exec(self.pill_date.mapToGlobal(self.pill_date.rect().bottomLeft()))
 
+    def _set_recurrence(self, *, fixed: bool, installments: int) -> None:
+        self.vm.recorrente_mensal = fixed
+        self.vm.num_parcelas = 1 if fixed else max(1, int(installments))
+        if self.vm.num_parcelas <= 1:
+            self.vm.valor_por_parcela = False
+        if hasattr(self, "pill_rec"):
+            self.pill_rec.set_pill_text(self._recurrence_text())
+        self.changed.emit()
+
+    def _pick_recurrence(self) -> None:
+        menu = QMenu(self.pill_rec)
+        act_single = menu.addAction("1x (À vista)")
+        act_single.setCheckable(True)
+        act_single.setChecked(not self.vm.recorrente_mensal and self.vm.num_parcelas <= 1)
+        act_single.triggered.connect(lambda: self._set_recurrence(fixed=False, installments=1))
+
+        act_fixed = menu.addAction("Fixa mensal")
+        act_fixed.setCheckable(True)
+        act_fixed.setChecked(self.vm.recorrente_mensal)
+        act_fixed.triggered.connect(lambda: self._set_recurrence(fixed=True, installments=1))
+
+        sub = menu.addMenu("Parcelado")
+        for n in (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24):
+            act_n = sub.addAction(f"{n}x")
+            act_n.setCheckable(True)
+            act_n.setChecked(not self.vm.recorrente_mensal and self.vm.num_parcelas == n)
+            act_n.triggered.connect(
+                lambda _=False, count=n: self._set_recurrence(fixed=False, installments=count)
+            )
+        menu.exec(self.pill_rec.mapToGlobal(self.pill_rec.rect().bottomLeft()))
+
     def _toggle_status(self) -> None:
         if self.vm.card_id:
             return
@@ -779,12 +846,15 @@ class AIQuickEntryDialogView(BaseModalDialog):
         model_name: str = "gemini-3.5-flash-lite",
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__("", "", min_width=680, parent=parent)
+        super().__init__("", "", min_width=720, parent=parent)
         self.setWindowTitle("Lançamento inteligente")
         self._p = palette
         self._model_name = model_name
         self._state = "input"
         self._cards: List[EntryCard] = []
+        self._attachment_bytes: Optional[bytes] = None
+        self._attachment_mime: Optional[str] = None
+        self._attachment_name: str = ""
         self.setStyleSheet(build_ai_entry_qss(palette))
         self._build_interface()
         self.show_input_state()
@@ -847,14 +917,49 @@ class AIQuickEntryDialogView(BaseModalDialog):
         self.txt_input.installEventFilter(self)
         box.addWidget(self.txt_input, stretch=1)
 
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(6)
+
+        self.btn_attach = QPushButton("Anexar")
+        self.btn_attach.setObjectName("SecondaryButton")
+        self.btn_attach.setIcon(get_line_icon("file", color=p.text_secondary, size=14))
+        self.btn_attach.setFixedHeight(36)
+        self.btn_attach.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_attach.setToolTip(
+            "Anexar comprovante, cupom ou fatura (PNG, JPG, WEBP, PDF) ou Ctrl+V"
+        )
+        self.btn_attach.clicked.connect(self._choose_attachment)
+        actions_row.addWidget(self.btn_attach)
+
         self.btn_interpret = QPushButton("Interpretar")
         self.btn_interpret.setObjectName("PrimaryButton")
         self.btn_interpret.setFixedHeight(36)
         self.btn_interpret.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_interpret.clicked.connect(self._emit_interpret)
-        box.addWidget(self.btn_interpret, alignment=Qt.AlignmentFlag.AlignBottom)
+        actions_row.addWidget(self.btn_interpret)
+
+        box.addLayout(actions_row)
+        box.setAlignment(actions_row, Qt.AlignmentFlag.AlignBottom)
 
         self.content_layout.addWidget(self.input_box)
+
+        # 2.1 Barra de anexo ativo (oculta até anexar arquivo ou colar print)
+        self.attachment_row = QWidget()
+        ar = QHBoxLayout(self.attachment_row)
+        ar.setContentsMargins(0, 0, 0, 0)
+        ar.setSpacing(8)
+        self.pill_attachment = PillButton(
+            "", "file", p, chevron=False, variant="outline"
+        )
+        self.pill_attachment.setToolTip("Clique para remover o anexo")
+        self.pill_attachment.clicked.connect(self.clear_attachment)
+        ar.addWidget(self.pill_attachment)
+        lbl_att_hint = QLabel("anexo pronto para leitura por IA")
+        lbl_att_hint.setObjectName("AIHint")
+        ar.addWidget(lbl_att_hint)
+        ar.addStretch()
+        self.attachment_row.setVisible(False)
+        self.content_layout.addWidget(self.attachment_row)
 
         # 3. Sugestões Clicáveis com Ícones Vetoriais
         self.suggestions = QWidget()
@@ -968,10 +1073,33 @@ class AIQuickEntryDialogView(BaseModalDialog):
 
     def set_loading(self, loading: bool) -> None:
         self.btn_interpret.setEnabled(not loading)
+        self.btn_attach.setEnabled(not loading)
         self.txt_input.setReadOnly(loading)
         self.btn_interpret.setText(
             "Interpretando…" if loading else self._interpret_label()
         )
+
+    def set_attachment(self, data: bytes, mime_type: str, name: str) -> None:
+        """Define um comprovante/fatura em memória para envio multimodal."""
+        if not data:
+            self.clear_attachment()
+            return
+        self._attachment_bytes = data
+        self._attachment_mime = mime_type
+        self._attachment_name = name or "anexo"
+        self.pill_attachment.set_pill_text(f"{self._attachment_name}  ×")
+        self.attachment_row.setVisible(True)
+        self.error_row.setVisible(False)
+        self.adjustSize()
+
+    def clear_attachment(self) -> None:
+        """Remove o anexo atual."""
+        self._attachment_bytes = None
+        self._attachment_mime = None
+        self._attachment_name = ""
+        self.pill_attachment.set_pill_text("")
+        self.attachment_row.setVisible(False)
+        self.adjustSize()
 
     def show_error(self, message: str) -> None:
         self.lbl_error.setText(message)
@@ -1040,8 +1168,39 @@ class AIQuickEntryDialogView(BaseModalDialog):
 
     def _emit_interpret(self) -> None:
         text = self.txt_input.toPlainText().strip()
-        if text:
+        if text or self._attachment_bytes:
             self.interpret_requested.emit(text)
+
+    def _choose_attachment(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Anexar comprovante, cupom ou fatura",
+            "",
+            "Comprovantes e Faturas (*.png *.jpg *.jpeg *.webp *.pdf)",
+        )
+        if not file_path:
+            return
+        path = Path(file_path)
+        ext_map = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".pdf": "application/pdf",
+        }
+        mime = ext_map.get(path.suffix.lower())
+        if not mime:
+            self.show_error("Formato de anexo não suportado. Use PNG, JPG, WEBP ou PDF.")
+            return
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            self.show_error(f"Não foi possível ler o arquivo: {exc}")
+            return
+        if len(data) > 15 * 1024 * 1024:
+            self.show_error("O arquivo excede o limite de 15 MB.")
+            return
+        self.set_attachment(data, mime, path.name)
 
     def _remove_card(self, card: EntryCard) -> None:
         if card in self._cards:
@@ -1088,6 +1247,24 @@ class AIQuickEntryDialogView(BaseModalDialog):
             elif ev.type() == QEvent.Type.FocusOut:
                 self.input_box.setProperty("focused", False)
                 _repolish(self.input_box)
+            elif ev.type() == QEvent.Type.KeyPress and (
+                ev.key() == Qt.Key.Key_V
+                and (ev.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            ):
+                clipboard = QApplication.clipboard()
+                mime_data = clipboard.mimeData() if clipboard else None
+                if mime_data is not None and mime_data.hasImage():
+                    image = clipboard.image()
+                    if not image.isNull():
+                        buf_bytes = QByteArray()
+                        qbuf = QBuffer(buf_bytes)
+                        qbuf.open(QIODevice.OpenModeFlag.WriteOnly)
+                        image.save(qbuf, "PNG")
+                        qbuf.close()
+                        self.set_attachment(
+                            bytes(buf_bytes.data()), "image/png", "print_colado.png"
+                        )
+                        return True
             elif ev.type() == QEvent.Type.KeyPress and ev.key() in (
                 Qt.Key.Key_Return,
                 Qt.Key.Key_Enter,

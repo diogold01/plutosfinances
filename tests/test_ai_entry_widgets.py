@@ -141,3 +141,127 @@ def test_ai_quick_entry_dialog_view_states_and_transitions() -> None:
     assert dlg.suggestions.isVisible() is True
 
     dlg.close()
+
+
+def test_attachment_and_recurrence_pill_controls() -> None:
+    app = QApplication.instance() or QApplication([])
+    pal = ThemePalette.for_mode("dark")
+    opts = _sample_options()
+
+    dlg = AIQuickEntryDialogView(palette=pal, model_name="gemini-3.5-flash-lite")
+    dlg.show()
+
+    # Anexo permite disparar interpretação mesmo com texto vazio
+    emitted: List[str] = []
+    dlg.interpret_requested.connect(emitted.append)
+    dlg.set_attachment(b"png-bytes", "image/png", "comprovante.png")
+    assert not dlg.attachment_row.isHidden()
+    assert "comprovante.png" in dlg.pill_attachment.text()
+    dlg._emit_interpret()
+    assert emitted == [""]
+
+    dlg.clear_attachment()
+    assert dlg.attachment_row.isHidden()
+    assert dlg._attachment_bytes is None
+
+    # Pílula de recorrência / parcelamento no EntryCard
+    vm = EntryViewModel(
+        kind=KIND_DESPESA,
+        description="Curso Online",
+        amount=600.0,
+        when=date(2026, 10, 31),
+        effective=False,
+        card_id="c1",
+        category_id="cat1",
+        num_parcelas=1,
+        recorrente_mensal=False,
+    )
+    dlg.show_preview([vm], opts)
+    card = dlg._cards[0]
+    assert hasattr(card, "pill_rec")
+    assert card.pill_rec.text() == "1x (À vista)"
+
+    card._set_recurrence(fixed=False, installments=6)
+    assert card.pill_rec.text() == "6x"
+    assert card.to_entry().num_parcelas == 6
+    assert card.to_entry().recorrente_mensal is False
+
+    card._set_recurrence(fixed=True, installments=1)
+    assert card.pill_rec.text() == "Fixa mensal"
+    assert card.to_entry().recorrente_mensal is True
+    assert card.to_entry().num_parcelas == 1
+
+    dlg.close()
+
+
+def test_entry_card_no_horizontal_clipping_with_long_labels() -> None:
+    app = QApplication.instance() or QApplication([])
+    pal = ThemePalette.for_mode("dark")
+    opts = EntryOptions(
+        accounts=[
+            ("acc1", "Minha Conta Corrente"),
+            ("acc2", "Pluggy Bank - GOLD Conta Corrente"),
+        ],
+        cards=[("c1", "Cartão Nubank")],
+        categories={
+            KIND_DESPESA: [
+                ("cat_tel", "Telecommunications"),
+                ("cat_long", "Transferência Bancária Internacional Longa"),
+            ],
+            KIND_RECEITA: [],
+        },
+    )
+    dlg = AIQuickEntryDialogView(palette=pal, model_name="gemini-3.5-flash-lite")
+    dlg.show()
+
+    # 1. Despesa fixa mensal com nomes longos: pill_rec e pill_status em line4 sem estourar 600px
+    vm_fixed = EntryViewModel(
+        kind=KIND_DESPESA,
+        description="Internet",
+        amount=120.0,
+        when=date(2026, 11, 15),
+        effective=True,
+        account_id="acc1",
+        category_id="cat_tel",
+        recorrente_mensal=True,
+    )
+    # 2. Despesa no cartão com nome longo de conta/categoria > 26 chars (testa elisão e line4)
+    vm_long = EntryViewModel(
+        kind=KIND_DESPESA,
+        description="Software",
+        amount=3600.0,
+        when=date(2026, 11, 15),
+        effective=False,
+        account_id="acc2",
+        category_id="cat_long",
+        num_parcelas=10,
+    )
+    vm_card = EntryViewModel(
+        kind=KIND_DESPESA,
+        description="Notebook",
+        amount=3600.0,
+        when=date(2026, 11, 15),
+        effective=False,
+        card_id="c1",
+        category_id="cat_tel",
+        num_parcelas=10,
+    )
+    dlg.show_preview([vm_fixed, vm_long, vm_card], opts)
+    card_fixed, card_long, card_card = dlg._cards
+
+    assert card_fixed._line3.indexOf(card_fixed.pill_rec) == -1
+    assert card_fixed._line4.indexOf(card_fixed.pill_rec) >= 0
+    assert card_fixed._line4.indexOf(card_fixed.pill_status) >= 0
+    assert card_fixed.minimumSizeHint().width() <= 600
+
+    assert card_card._line3.indexOf(card_card.pill_status) == -1
+    assert card_card._line4.indexOf(card_card.pill_status) >= 0
+
+    assert card_long.pill_source.text().endswith("…")
+    assert len(card_long.pill_source.text()) <= 26
+    assert card_long.pill_source.toolTip() == "Pluggy Bank - GOLD Conta Corrente"
+    assert card_long.pill_cat.text().endswith("…")
+    assert card_long.pill_cat.toolTip() == "Transferência Bancária Internacional Longa"
+    assert card_long.minimumSizeHint().width() <= 600
+
+    dlg.close()

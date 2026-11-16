@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config import ai_key_store
 from app.config.theme_palette import (
     EXPENSE_RED,
     INCOME_GREEN,
@@ -43,6 +44,7 @@ from app.config.theme_palette import (
 from app.database.connection_manager import ConnectionManager
 from app.database.repositories.account_repository import AccountRepository
 from app.database.repositories.category_repository import CategoryRepository
+from app.domain.services.ai_service import AIService
 from app.domain.services.analytics_service import (
     AnalyticsService,
     LoanDTO,
@@ -251,6 +253,12 @@ class FerramentasView(QWidget):
         )
         self.chk_skip_dup.setChecked(True)
         imp_form.addRow("", self.chk_skip_dup)
+
+        self.chk_ai_categorize = QCheckBox(
+            "Categorizar e higienizar descrições automaticamente (Regras Locais + IA)"
+        )
+        self.chk_ai_categorize.setChecked(True)
+        imp_form.addRow("", self.chk_ai_categorize)
 
         imp_lay.addLayout(imp_form)
 
@@ -550,6 +558,15 @@ class FerramentasView(QWidget):
             (m for m in self._csv_mappings if m.id == map_id), None
         )
 
+        use_enrich = self.chk_ai_categorize.isChecked()
+        ai_svc: Optional[AIService] = None
+        use_ai = False
+        if use_enrich:
+            key, _src = ai_key_store.resolve_gemini_key(self.db.settings.user_data_dir)
+            if key:
+                ai_svc = AIService(key, model=self.db.settings.gemini_model)
+                use_ai = True
+
         report = self.io_orchestrator.import_file(
             file_path,
             profile_id=profile_id,
@@ -558,17 +575,28 @@ class FerramentasView(QWidget):
             default_kind=default_kind,
             mapping=selected_map,
             skip_duplicates=self.chk_skip_dup.isChecked(),
+            enrich_categories=use_enrich,
+            use_ai_categorization=use_ai,
+            ai_service=ai_svc,
         )
         extra_skip = (
             f" | {report.skipped_invoice_payments} pgto(s) fatura ignorado(s)"
             if getattr(report, "skipped_invoice_payments", 0) > 0
             else ""
         )
+        extra_parts: List[str] = []
+        if report.categorized_local_count > 0:
+            extra_parts.append(f"{report.categorized_local_count} por regras locais")
+        if report.categorized_ai_count > 0:
+            extra_parts.append(f"{report.categorized_ai_count} por IA")
+        if report.reconciled_transfers_count > 0:
+            extra_parts.append(f"{report.reconciled_transfers_count} transf. conciliada(s)")
+        extra_enrich = f" | {' · '.join(extra_parts)}" if extra_parts else ""
         self.lbl_import_status.setText(
             f"Importação concluída ({report.format_type.upper()}): "
             f"{report.imported_count} importados | "
             f"{report.skipped_duplicates} duplicados ignorados"
-            f"{extra_skip} | "
+            f"{extra_skip}{extra_enrich} | "
             f"{report.error_count} erros (de {report.total_rows_read} lidos)."
         )
         if report.imported_count > 0:

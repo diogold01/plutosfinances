@@ -650,6 +650,144 @@ def test_nubank_credit_card_invoice_import_closing_day_and_payment_filter(tmp_pa
     db.close()
 
 
+def test_import_hybrid_local_rules_ai_batch_and_self_transfer_reconciliation(
+    tmp_path: Path,
+) -> None:
+    """Valida categorização híbrida (regras locais + lote IA), higienização e conciliação de transferência."""
+    import json
+    from datetime import date
+
+    from app.database.repositories.category_repository import CategoryRepository
+    from app.domain.models import KIND_DESPESA
+    from app.domain.services.ai_entry_service import (
+        ResolvedEntry,
+        load_learned_rules,
+        save_learned_rule,
+    )
+    from app.domain.services.ai_service import AIService
+
+    db_path = tmp_path / "io_ai_hybrid.sqlite"
+    settings = AppSettings.load(tmp_path / "settings_ai_hybrid.json")
+    settings.active_db_path = str(db_path)
+    settings.save()
+
+    db = ConnectionManager(settings=settings, auto_connect=False)
+    db.create_new_database(db_path, overwrite=True)
+
+    acc_repo = AccountRepository(db)
+    cat_repo = CategoryRepository(db)
+    tx = TransactionService(db)
+    orchestrator = DataIOOrchestrator(db, tx)
+
+    acc_a_id = acc_repo.create_account(descricao="Conta Corrente A", saldo_inicial=1000.0)
+    acc_b_id = acc_repo.create_account(descricao="Conta Reserva B", saldo_inicial=500.0)
+
+    exp_cats = cat_repo.list_categories("DESPESA", "1")
+    uber_cat = next((c for c in exp_cats if "transporte" in c.nome.lower()), exp_cats[0])
+    food_cat = next(
+        (c for c in exp_cats if "aliment" in c.nome.lower() and c.id != uber_cat.id),
+        exp_cats[1] if len(exp_cats) > 1 else exp_cats[0],
+    )
+
+    save_learned_rule(
+        db,
+        "1",
+        ResolvedEntry(
+            tipo=KIND_DESPESA,
+            descricao="Uber",
+            valor=25.0,
+            data=date(2026, 10, 10),
+            id_categoria=uber_cat.id,
+        ),
+        pattern_override="uber",
+    )
+
+    captured_bodies = []
+
+    def _fake_transport(url, headers, body, timeout):
+        text_body = body.decode("utf-8") if isinstance(body, (bytes, bytearray)) else str(body)
+        captured_bodies.append(text_body)
+        payload = {
+            "itens": [
+                {
+                    "descricao_original": "PAG*Padaria Estrela",
+                    "descricao_limpa": "Padaria Estrela",
+                    "categoria": food_cat.nome,
+                    "eh_transferencia_propria": False,
+                }
+            ]
+        }
+        inner = json.dumps(payload)
+        return json.dumps({"candidates": [{"content": {"parts": [{"text": inner}]}}]})
+
+    fake_ai = AIService("test-key", transport=_fake_transport)
+
+    csv_file = tmp_path / "extrato_hibrido.csv"
+    csv_file.write_text(
+        "Data;Conta;Descrição;Valor;Tipo;Categoria\n"
+        "10/10/2026;Conta Corrente A;UBER DO BRASIL;-32,50;Despesa;\n"
+        "11/10/2026;Conta Corrente A;PAG*Padaria Estrela;-18,00;Despesa;Outros\n"
+        "12/10/2026;Conta Corrente A;PIX TRANSF RESERVA;-500,00;Despesa;\n"
+        "12/10/2026;Conta Reserva B;PIX TRANSF RESERVA;500,00;Receita;\n",
+        encoding="utf-8-sig",
+    )
+
+    rep = orchestrator.import_file(
+        csv_file,
+        profile_id="1",
+        skip_duplicates=True,
+        enrich_categories=True,
+        use_ai_categorization=True,
+        ai_service=fake_ai,
+    )
+
+    assert rep.error_count == 0
+    assert rep.reconciled_transfers_count == 1
+    assert rep.categorized_local_count >= 1
+    assert rep.categorized_ai_count >= 1
+    assert rep.imported_count == 3
+
+    assert len(captured_bodies) == 1
+    assert "PAG*Padaria Estrela" in captured_bodies[0]
+    assert "UBER DO BRASIL" not in captured_bodies[0]
+
+    despesas = db.execute_query("SELECT descricao, id_categoria, valor FROM despesas WHERE data_exclusao IS NULL")
+    receitas = db.execute_query("SELECT descricao, valor FROM receitas WHERE data_exclusao IS NULL")
+    transfers = db.execute_query(
+        "SELECT id_conta_origem, id_conta_destino, valor FROM transferencias WHERE data_exclusao IS NULL"
+    )
+
+    assert len(receitas) == 0
+    assert len(transfers) == 1
+    assert transfers[0]["id_conta_origem"] == acc_a_id
+    assert transfers[0]["id_conta_destino"] == acc_b_id
+    assert float(transfers[0]["valor"]) == 500.0
+
+    by_desc = {r["descricao"]: r for r in despesas}
+    assert "Padaria Estrela" in by_desc
+    assert by_desc["Padaria Estrela"]["id_categoria"] == food_cat.id
+    uber_rows = [r for r in despesas if "uber" in str(r["descricao"]).lower()]
+    assert len(uber_rows) == 1
+    assert uber_rows[0]["id_categoria"] == uber_cat.id
+
+    rules = load_learned_rules(db, "1")
+    assert len(rules) >= 2
+
+    rep_dup = orchestrator.import_file(
+        csv_file,
+        profile_id="1",
+        skip_duplicates=True,
+        enrich_categories=True,
+        use_ai_categorization=True,
+        ai_service=fake_ai,
+    )
+    assert rep_dup.imported_count == 0
+    assert rep_dup.skipped_duplicates >= 3
+
+    db.close()
+
+
+
 
 
 

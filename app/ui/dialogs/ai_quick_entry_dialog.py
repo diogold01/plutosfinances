@@ -43,8 +43,12 @@ def to_view_model(entry: ResolvedEntry) -> EntryViewModel:
         fallback_fields={
             "account" if ("id_conta" in fb or "conta" in fb) else None,
             "category" if ("id_categoria" in fb or "categoria" in fb) else None,
+            "destination" if ("id_conta_destino" in fb or "destination" in fb) else None,
         }
         - {None},
+        num_parcelas=entry.num_parcelas,
+        valor_por_parcela=entry.valor_por_parcela,
+        recorrente_mensal=entry.recorrente_mensal,
     )
 
 
@@ -60,6 +64,9 @@ def to_resolved_entry(vm: EntryViewModel) -> ResolvedEntry:
         efetivada=vm.effective,
         id_conta_destino=vm.destination_account_id,
         campos_fallback=set(vm.fallback_fields),
+        num_parcelas=vm.num_parcelas,
+        valor_por_parcela=vm.valor_por_parcela,
+        recorrente_mensal=vm.recorrente_mensal,
     )
 
 
@@ -120,8 +127,8 @@ class AIQuickEntryDialog(AIQuickEntryDialogView):
         raw_text = (
             text if text is not None else self.txt_input.toPlainText()
         ).strip()
-        if not raw_text:
-            self.show_error("Digite o lançamento na barra acima.")
+        if not raw_text and not self._attachment_bytes:
+            self.show_error("Digite o lançamento ou anexe um comprovante na barra acima.")
             return
         if not self._service.is_configured:
             self.show_error(
@@ -132,7 +139,12 @@ class AIQuickEntryDialog(AIQuickEntryDialogView):
         self.set_loading(True)
         self.error_row.setVisible(False)
         self._worker = AIParseWorker(
-            self._service, raw_text, self.catalog.to_context(), self
+            self._service,
+            raw_text,
+            self.catalog.to_context(),
+            self,
+            attachment_bytes=self._attachment_bytes,
+            mime_type=self._attachment_mime,
         )
         self._worker.succeeded.connect(self.apply_drafts)
         self._worker.failed.connect(self.show_error)
@@ -162,6 +174,7 @@ class AIQuickEntryDialog(AIQuickEntryDialogView):
             return saved
 
         if saved:
+            self.catalog = load_catalog(self.db, self.tx, self.profile_id)
             self.on_saved()
         self.done_ok()
         return saved

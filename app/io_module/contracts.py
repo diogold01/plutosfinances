@@ -92,6 +92,9 @@ class ImportReport:
     imported_count: int = 0
     skipped_duplicates: int = 0
     skipped_invoice_payments: int = 0
+    categorized_local_count: int = 0
+    categorized_ai_count: int = 0
+    reconciled_transfers_count: int = 0
     error_count: int = 0
     errors: List[str] = field(default_factory=list)
     imported_ids: List[str] = field(default_factory=list)

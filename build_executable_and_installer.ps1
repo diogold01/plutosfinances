@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Script automatizado de compilação do Executável Nativo (Plutos.exe)
     e do Instalador Windows Versionado (Plutos_Setup_1.1.0.exe).
@@ -28,7 +28,7 @@ if (-not $Version) {
     } catch {}
 }
 if (-not $Version) {
-    $Version = "1.3.3"
+    $Version = "1.4.0"
 }
 
 Write-Host "=================================================================" -ForegroundColor Cyan

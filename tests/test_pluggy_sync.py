@@ -308,3 +308,187 @@ def test_full_preview_and_apply_sync_to_sqlite_and_ui_dialog(tmp_path: Path):
     assert sum(b.total_duplicadas for b in batches_second) == 3
 
     db.close()
+
+
+def test_pluggy_sync_ai_batch_enrichment_and_transfer_reconciliation(tmp_path) -> None:
+    """Valida enriquecimento híbrido (regra local + lote IA) e conciliação de transferência entre bancos no Open Finance."""
+    import json
+    from datetime import date
+
+    from app.config.app_settings import AppSettings
+    from app.database.connection_manager import ConnectionManager
+    from app.database.repositories.account_repository import AccountRepository
+    from app.database.repositories.category_repository import CategoryRepository
+    from app.domain.models import KIND_DESPESA
+    from app.domain.services.ai_entry_service import ResolvedEntry, save_learned_rule
+    from app.domain.services.ai_service import AIService
+    from app.io_module.contracts import CanonicalTransactionRow
+    from app.services.pluggy_sync_service import (
+        MappedAccountDTO,
+        PluggySyncService,
+        SyncBatchResult,
+    )
+
+    db_path = tmp_path / "pluggy_ai_sync.sqlite"
+    settings = AppSettings.load(tmp_path / "pluggy_ai_settings.json")
+    settings.active_db_path = str(db_path)
+    settings.save()
+
+    db = ConnectionManager(settings=settings, auto_connect=False)
+    db.create_new_database(db_path, overwrite=True)
+
+    acc_repo = AccountRepository(db)
+    cat_repo = CategoryRepository(db)
+    acc_a_id = acc_repo.create_account(descricao="Nubank", saldo_inicial=2000.0)
+    acc_b_id = acc_repo.create_account(descricao="Inter", saldo_inicial=1000.0)
+
+    exp_cats = cat_repo.list_categories("DESPESA", "1")
+    uber_cat = next((c for c in exp_cats if "transporte" in c.nome.lower()), exp_cats[0])
+    food_cat = next(
+        (c for c in exp_cats if "aliment" in c.nome.lower() and c.id != uber_cat.id),
+        exp_cats[1] if len(exp_cats) > 1 else exp_cats[0],
+    )
+
+    save_learned_rule(
+        db,
+        "1",
+        ResolvedEntry(
+            tipo=KIND_DESPESA,
+            descricao="Uber",
+            valor=20.0,
+            data=date(2026, 10, 10),
+            id_categoria=uber_cat.id,
+        ),
+        pattern_override="uber",
+    )
+
+    captured_bodies = []
+
+    def _fake_transport(url, headers, body, timeout):
+        text_body = body.decode("utf-8") if isinstance(body, (bytes, bytearray)) else str(body)
+        captured_bodies.append(text_body)
+        payload = {
+            "itens": [
+                {
+                    "descricao_original": "PAG*Mercadinho Bom",
+                    "descricao_limpa": "Mercadinho Bom",
+                    "categoria": food_cat.nome,
+                    "eh_transferencia_propria": False,
+                }
+            ]
+        }
+        inner = json.dumps(payload)
+        return json.dumps({"candidates": [{"content": {"parts": [{"text": inner}]}}]})
+
+    fake_ai = AIService("test-key", transport=_fake_transport)
+
+    batch_a = SyncBatchResult(
+        account=MappedAccountDTO(
+            external_id="ext-acc-a",
+            nome="Nubank",
+            tipo_plutos="CONTA",
+            saldo_atual=2000.0,
+        ),
+        novas_transacoes=[
+            CanonicalTransactionRow(
+                kind="despesa",
+                descricao="UBER *TRIP 123",
+                valor=28.90,
+                data_vencimento=date(2026, 10, 15),
+                data_lancamento=date(2026, 10, 15),
+                data_efetivacao=date(2026, 10, 15),
+                efetivada=True,
+                categoria="Outros",
+                subcategoria="Outros",
+                conta="Nubank",
+                fingerprint="pluggy-tx-1",
+            ),
+            CanonicalTransactionRow(
+                kind="despesa",
+                descricao="PAG*Mercadinho Bom",
+                valor=95.00,
+                data_vencimento=date(2026, 10, 16),
+                data_lancamento=date(2026, 10, 16),
+                data_efetivacao=date(2026, 10, 16),
+                efetivada=True,
+                categoria="Outros",
+                subcategoria="Outros",
+                conta="Nubank",
+                fingerprint="pluggy-tx-2",
+            ),
+            CanonicalTransactionRow(
+                kind="despesa",
+                descricao="PIX ENVIADO RESERVA",
+                valor=400.00,
+                data_vencimento=date(2026, 10, 17),
+                data_lancamento=date(2026, 10, 17),
+                data_efetivacao=date(2026, 10, 17),
+                efetivada=True,
+                categoria="Outros",
+                subcategoria="Outros",
+                conta="Nubank",
+                fingerprint="pluggy-tx-3",
+            ),
+        ],
+    )
+    batch_b = SyncBatchResult(
+        account=MappedAccountDTO(
+            external_id="ext-acc-b",
+            nome="Inter",
+            tipo_plutos="CONTA",
+            saldo_atual=1000.0,
+        ),
+        novas_transacoes=[
+            CanonicalTransactionRow(
+                kind="receita",
+                descricao="PIX RECEBIDO CONTA",
+                valor=400.00,
+                data_vencimento=date(2026, 10, 17),
+                data_lancamento=date(2026, 10, 17),
+                data_efetivacao=date(2026, 10, 17),
+                efetivada=True,
+                categoria="Outros",
+                subcategoria="Outros",
+                conta="Inter",
+                fingerprint="pluggy-tx-4",
+            ),
+        ],
+    )
+
+    svc = PluggySyncService(client=None, db=db)  # type: ignore[arg-type]
+    summary = svc.apply_sync_results(
+        [batch_a, batch_b],
+        profile_id="1",
+        enrich_with_ai=True,
+        ai_service=fake_ai,
+    )
+
+    assert summary.categorizadas_regras_locais == 1
+    assert summary.categorizadas_ia == 1
+    assert summary.transferencias_conciliadas == 1
+    assert summary.transacoes_importadas == 3
+
+    assert len(captured_bodies) == 1
+    assert "PAG*Mercadinho Bom" in captured_bodies[0]
+    assert "UBER *TRIP 123" not in captured_bodies[0]
+
+    despesas = db.execute_query("SELECT descricao, id_categoria FROM despesas WHERE data_exclusao IS NULL")
+    receitas = db.execute_query("SELECT id FROM receitas WHERE data_exclusao IS NULL")
+    transfers = db.execute_query(
+        "SELECT id_conta_origem, id_conta_destino, valor FROM transferencias WHERE data_exclusao IS NULL"
+    )
+
+    assert len(receitas) == 0
+    assert len(transfers) == 1
+    assert transfers[0]["id_conta_origem"] == acc_a_id
+    assert transfers[0]["id_conta_destino"] == acc_b_id
+    assert float(transfers[0]["valor"]) == 400.0
+
+    by_desc = {r["descricao"]: r for r in despesas}
+    assert "Mercadinho Bom" in by_desc
+    assert by_desc["Mercadinho Bom"]["id_categoria"] == food_cat.id
+    uber_rows = [r for r in despesas if "uber" in str(r["descricao"]).lower()]
+    assert len(uber_rows) == 1
+    assert uber_rows[0]["id_categoria"] == uber_cat.id
+
+    db.close()

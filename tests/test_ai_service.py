@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 
 from app.config.app_settings import AppSettings
-from app.domain.models import KIND_DESPESA, KIND_RECEITA
+from app.domain.models import KIND_DESPESA, KIND_RECEITA, KIND_TRANSFERENCIA
 from app.domain.services.ai_service import AIContext, AIService, AIServiceError, format_clean_description
 
 CTX = AIContext(
@@ -146,3 +146,129 @@ def test_format_clean_description_and_title_casing() -> None:
     drafts = svc.parse_transactions("uber 2,59 e farmacia nathaly 16,14", CTX, TODAY)
     assert drafts[0].descricao == "Uber"
     assert drafts[1].descricao == "Farmacia Nathaly"
+
+
+def test_parse_transfer_installments_and_fixed_recurrence() -> None:
+    ctx = AIContext(
+        contas=["Itaú Corrente", "Nubank Conta"],
+        cartoes=["Nubank"],
+        categorias_despesa=["Eletrônicos", "Moradia"],
+        categorias_receita=["Salário"],
+    )
+    svc = AIService(
+        "k",
+        transport=_fake(
+            [
+                {
+                    "tipo": "TRANSFERENCIA",
+                    "descricao": "Reserva Mensal",
+                    "valor": 500,
+                    "data": "2026-10-31",
+                    "conta": "Itaú Corrente",
+                    "conta_destino": "Nubank Conta",
+                    "efetivada": True,
+                },
+                {
+                    "tipo": "DESPESA",
+                    "descricao": "Notebook",
+                    "valor": 3000,
+                    "data": "2026-10-31",
+                    "cartao": "Nubank",
+                    "categoria": "Eletrônicos",
+                    "num_parcelas": 10,
+                    "valor_por_parcela": False,
+                    "recorrente_mensal": False,
+                },
+                {
+                    "tipo": "DESPESA",
+                    "descricao": "Aluguel",
+                    "valor": 1800,
+                    "data": "2026-10-31",
+                    "conta": "Itaú Corrente",
+                    "categoria": "Moradia",
+                    "num_parcelas": 1,
+                    "recorrente_mensal": True,
+                    "efetivada": False,
+                },
+            ]
+        ),
+    )
+    drafts = svc.parse_transactions("transferi 500, notebook 3000 10x, aluguel fixo", ctx, TODAY)
+    assert len(drafts) == 3
+
+    assert drafts[0].tipo == KIND_TRANSFERENCIA
+    assert drafts[0].conta == "Itaú Corrente"
+    assert drafts[0].conta_destino == "Nubank Conta"
+    assert drafts[0].categoria is None
+    assert drafts[0].num_parcelas == 1
+
+    assert drafts[1].tipo == KIND_DESPESA
+    assert drafts[1].num_parcelas == 10
+    assert drafts[1].valor_por_parcela is False
+    assert drafts[1].recorrente_mensal is False
+    assert drafts[1].cartao == "Nubank"
+
+    assert drafts[2].tipo == KIND_DESPESA
+    assert drafts[2].recorrente_mensal is True
+    assert drafts[2].num_parcelas == 1
+
+
+def test_parse_multimodal_attachment_and_validation() -> None:
+    import base64
+
+    captured = {}
+
+    def transport(url, headers, body, timeout):
+        captured["payload"] = json.loads(body.decode("utf-8"))
+        inner = json.dumps(
+            {
+                "lancamentos": [
+                    {
+                        "tipo": "DESPESA",
+                        "descricao": "Mercado Central",
+                        "valor": 89.5,
+                        "data": "2026-10-31",
+                        "conta": "Itaú Corrente",
+                        "categoria": "Alimentação",
+                    }
+                ]
+            }
+        )
+        return json.dumps({"candidates": [{"content": {"parts": [{"text": inner}]}}]})
+
+    svc = AIService("k", transport=transport)
+    raw_img = b"\x89PNG\r\n\x1a\nfake-png-bytes"
+    drafts = svc.parse_transactions(
+        "",
+        CTX,
+        TODAY,
+        attachment_bytes=raw_img,
+        mime_type="image/png",
+    )
+    assert len(drafts) == 1
+    assert drafts[0].descricao == "Mercado Central"
+    parts = captured["payload"]["contents"][0]["parts"]
+    assert len(parts) == 2
+    assert parts[1]["inline_data"]["mime_type"] == "image/png"
+    assert parts[1]["inline_data"]["data"] == base64.b64encode(raw_img).decode("ascii")
+
+    # PDF também é aceito
+    drafts_pdf = svc.parse_transactions(
+        "fatura",
+        CTX,
+        TODAY,
+        attachment_bytes=b"%PDF-1.4...",
+        mime_type="application/pdf",
+    )
+    assert len(drafts_pdf) == 1
+    assert captured["payload"]["contents"][0]["parts"][1]["inline_data"]["mime_type"] == "application/pdf"
+
+    # Formato inválido levanta AIServiceError
+    with pytest.raises(AIServiceError):
+        svc.parse_transactions(
+            "",
+            CTX,
+            TODAY,
+            attachment_bytes=b"abc",
+            mime_type="text/plain",
+        )

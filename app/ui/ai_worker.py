@@ -36,23 +36,35 @@ class AITestWorker(QThread):
 
 
 class AIParseWorker(QThread):
-    """Interpreta um texto em background. Emite `succeeded(list)` ou `failed(str)`."""
+    """Interpreta um texto e/ou anexo em background. Emite `succeeded(list)` ou `failed(str)`."""
 
     succeeded = Signal(list)
     failed = Signal(str)
 
     def __init__(
-        self, service: AIService, text: str, context: AIContext, parent: Optional[object] = None
+        self,
+        service: AIService,
+        text: str,
+        context: AIContext,
+        parent: Optional[object] = None,
+        *,
+        attachment_bytes: Optional[bytes] = None,
+        mime_type: Optional[str] = None,
     ) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._service = service
         self._text = text
         self._context = context
+        self._attachment_bytes = attachment_bytes
+        self._mime_type = mime_type
 
     def run(self) -> None:
         try:
             drafts: List[TransactionDraft] = self._service.parse_transactions(
-                self._text, self._context
+                self._text,
+                self._context,
+                attachment_bytes=self._attachment_bytes,
+                mime_type=self._mime_type,
             )
             self.succeeded.emit(drafts)
         except AIServiceError as exc:
@@ -83,6 +95,34 @@ class FinancialHealthWorker(QThread):
                 self._payload
             )
             self.succeeded.emit(report)
+        except AIServiceError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001 - nunca deixar a thread morrer silenciosa
+            self.failed.emit(f"Erro inesperado: {exc}")
+
+
+class AICopilotWorker(QThread):
+    """Responde perguntas ao Copiloto Financeiro em background. Emite `succeeded(str)` ou `failed(str)`."""
+
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        service: AIService,
+        question: str,
+        payload: Dict[str, Any],
+        parent: Optional[object] = None,
+    ) -> None:
+        super().__init__(parent)  # type: ignore[arg-type]
+        self._service = service
+        self._question = question
+        self._payload = payload
+
+    def run(self) -> None:
+        try:
+            answer = self._service.ask_financial_copilot(self._question, self._payload)
+            self.succeeded.emit(answer)
         except AIServiceError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001 - nunca deixar a thread morrer silenciosa

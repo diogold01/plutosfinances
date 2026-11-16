@@ -5,6 +5,7 @@ Serviço Analítico de Relatórios, Gráficos, Calendário Financeiro e Ferramen
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -22,6 +23,9 @@ from app.domain.models import (
     KIND_TRANSFERENCIA,
     Occurrence,
 )
+from app.domain.services.ai_service import FinancialHealthReport
+from app.domain.services.budget_service import BudgetService
+from app.domain.services.goal_service import GoalService
 from app.domain.services.transaction_service import TransactionService
 
 
@@ -65,6 +69,10 @@ class FinancialHealthData:
     percentual_poupanca: float
     categorias: List[CategoryHealthMetric] = field(default_factory=list)
     historico_recente: List[Dict[str, Any]] = field(default_factory=list)
+    projecao_caixa_30_60_90: List[Dict[str, Any]] = field(default_factory=list)
+    orcamentos_em_risco: List[Dict[str, Any]] = field(default_factory=list)
+    comprometimento_cartoes_futuro: List[Dict[str, Any]] = field(default_factory=list)
+    objetivos_ativos: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_ai_payload(self) -> Dict[str, Any]:
         """Gera payload 100% anonimizado e estruturado para prompt da IA."""
@@ -106,6 +114,10 @@ class FinancialHealthData:
                 for c in self.categorias
             ],
             "historico_2_meses_anteriores": self.historico_recente,
+            "projecao_caixa_30_60_90": list(self.projecao_caixa_30_60_90),
+            "orcamentos_em_risco": list(self.orcamentos_em_risco),
+            "comprometimento_cartoes_futuro": list(self.comprometimento_cartoes_futuro),
+            "objetivos_ativos": list(self.objetivos_ativos),
         }
 
 
@@ -947,6 +959,87 @@ class AnalyticsService:
         else:
             pct_ess, pct_est, pct_pou = 0.0, 0.0, 0.0
 
+        # 6. Projeção de Caixa 30/60/90d e Comprometimento Futuro de Cartões
+        projecao_caixa: List[Dict[str, Any]] = []
+        comprometimento_cartoes: List[Dict[str, Any]] = []
+        running_balance = saldo_contas
+        for k in (1, 2, 3):
+            f_dt = add_months(anchor, k)
+            f_occs = self.tx_service.list_occurrences(
+                f_dt.year,
+                f_dt.month,
+                profile_id=profile_id,
+                kinds=[KIND_RECEITA, KIND_DESPESA],
+                light=True,
+            )
+            f_summ = self.tx_service.summarize(f_occs)
+            rec_f = round(float(f_summ["receitas"]), 2)
+            desp_f = round(float(f_summ["despesas"]), 2)
+            card_f = round(
+                sum(
+                    float(o.total)
+                    for o in f_occs
+                    if o.kind == KIND_DESPESA and o.is_card and o.contabilizar
+                ),
+                2,
+            )
+            running_balance = round(running_balance + rec_f - desp_f, 2)
+            projecao_caixa.append(
+                {
+                    "horizonte": f"{k * 30}d",
+                    "periodo": f"{f_dt.month:02d}/{f_dt.year}",
+                    "receitas_previstas": rec_f,
+                    "despesas_previstas": desp_f,
+                    "faturas_cartao": card_f,
+                    "saldo_projetado": running_balance,
+                }
+            )
+            renda_base_f = rec_f if rec_f > 0 else tot_receitas
+            pct_renda = (
+                round((card_f / renda_base_f) * 100.0, 1)
+                if renda_base_f > 0
+                else 0.0
+            )
+            comprometimento_cartoes.append(
+                {
+                    "periodo": f"{f_dt.month:02d}/{f_dt.year}",
+                    "total_faturas": card_f,
+                    "comprometimento_renda_pct": pct_renda,
+                }
+            )
+
+        # 7. Orçamentos em Risco no Mês
+        budgets_progress = BudgetService(self.db, self.tx_service).list_budgets_progress(
+            year, month, profile_id=profile_id
+        )
+        orcamentos_risco = [
+            {
+                "alvo": b.nome_alvo,
+                "meta": b.meta_mes,
+                "utilizado": b.utilizado,
+                "percentual_usado": b.percentual,
+                "status": b.status_label,
+            }
+            for b in budgets_progress
+            if b.tipo == "D" and b.percentual >= min(b.perc_alerta, 80.0)
+        ]
+
+        # 8. Objetivos Ativos (sem expor chaves brutas de transações)
+        active_goals = GoalService(self.db).list_goals(
+            profile_id=profile_id, include_completed=False
+        )
+        objetivos_resumo = [
+            {
+                "objetivo": g.descricao,
+                "meta": g.meta,
+                "acumulado": g.saldo_acumulado,
+                "restante": g.restante,
+                "percentual_concluido": g.percentual,
+                "aporte_mensal_sugerido": g.aporte_mensal_sugerido,
+            }
+            for g in active_goals
+        ]
+
         return FinancialHealthData(
             ano=year,
             mes=month,
@@ -962,4 +1055,85 @@ class AnalyticsService:
             percentual_poupanca=pct_pou,
             categorias=cat_metrics,
             historico_recente=historico,
+            projecao_caixa_30_60_90=projecao_caixa,
+            orcamentos_em_risco=orcamentos_risco,
+            comprometimento_cartoes_futuro=comprometimento_cartoes,
+            objetivos_ativos=objetivos_resumo,
         )
+
+    def save_health_report(
+        self,
+        year: int,
+        month: int,
+        report: FinancialHealthReport,
+        profile_id: str = "1",
+    ) -> None:
+        """Persiste ou atualiza no SQLite o diagnóstico de saúde financeira da competência."""
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        payload_json = json.dumps(report.to_dict(), ensure_ascii=False)
+        with self.db.transaction() as cur:
+            cur.execute(
+                """
+                INSERT INTO ai_health_reports (
+                    id_profile, ano, mes, score_saude, report_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id_profile, ano, mes) DO UPDATE SET
+                    score_saude = excluded.score_saude,
+                    report_json = excluded.report_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    str(profile_id),
+                    int(year),
+                    int(month),
+                    int(report.score_saude),
+                    payload_json,
+                    now_str,
+                ),
+            )
+
+    def load_health_report(
+        self,
+        year: int,
+        month: int,
+        profile_id: str = "1",
+    ) -> Optional[FinancialHealthReport]:
+        """Carrega do SQLite o diagnóstico salvo para `(profile_id, year, month)`, se existir."""
+        rows = self.db.execute_query(
+            """
+            SELECT report_json
+            FROM ai_health_reports
+            WHERE id_profile = ? AND ano = ? AND mes = ?
+            """,
+            (str(profile_id), int(year), int(month)),
+        )
+        if not rows:
+            return None
+        try:
+            data = json.loads(str(rows[0]["report_json"] or "{}"))
+            return FinancialHealthReport.from_dict(data)
+        except (ValueError, KeyError, TypeError):
+            return None
+
+    def get_previous_health_score(
+        self,
+        year: int,
+        month: int,
+        profile_id: str = "1",
+    ) -> Optional[int]:
+        """Retorna o `score_saude` salvo da competência imediatamente anterior, se houver."""
+        prev_dt = add_months(date(int(year), int(month), 1), -1)
+        rows = self.db.execute_query(
+            """
+            SELECT score_saude
+            FROM ai_health_reports
+            WHERE id_profile = ? AND ano = ? AND mes = ?
+            """,
+            (str(profile_id), int(prev_dt.year), int(prev_dt.month)),
+        )
+        if not rows:
+            return None
+        try:
+            return int(rows[0]["score_saude"])
+        except (ValueError, TypeError):
+            return None
