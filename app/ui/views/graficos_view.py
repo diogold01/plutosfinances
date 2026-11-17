@@ -8,6 +8,7 @@ from PySide6.QtCharts import (
     QBarCategoryAxis,
     QBarSeries,
     QBarSet,
+    QCategoryAxis,
     QChart,
     QChartView,
     QLineSeries,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -93,7 +95,14 @@ class GraficosView(QWidget):
         header.addLayout(filter_box)
         root.addLayout(header)
 
-        grid = QGridLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        grid_host = QWidget()
+        grid_host.setStyleSheet("background: transparent;")
+        grid = QGridLayout(grid_host)
+        grid.setContentsMargins(0, 0, 4, 4)
         grid.setSpacing(16)
 
         self.cv_exp_pie = self._make_chart_view()
@@ -101,11 +110,15 @@ class GraficosView(QWidget):
         self.cv_bars = self._make_chart_view()
         self.cv_line = self._make_chart_view()
 
+        for cv in (self.cv_exp_pie, self.cv_inc_pie, self.cv_bars, self.cv_line):
+            cv.setMinimumHeight(250)
+
         grid.addWidget(self._wrap_card(self.cv_exp_pie), 0, 0)
         grid.addWidget(self._wrap_card(self.cv_inc_pie), 0, 1)
         grid.addWidget(self._wrap_card(self.cv_bars), 1, 0)
         grid.addWidget(self._wrap_card(self.cv_line), 1, 1)
-        root.addLayout(grid, stretch=1)
+        scroll.setWidget(grid_host)
+        root.addWidget(scroll, stretch=1)
 
     @staticmethod
     def _make_chart_view() -> QChartView:
@@ -169,8 +182,8 @@ class GraficosView(QWidget):
         series.setHoleSize(0.50)
 
         if not rows:
-            sl = series.append("Sem lançamentos", 1.0)
-            sl.setColor(QColor(pal.surface_header))
+            sl = series.append("Sem dados no período", 1.0)
+            sl.setColor(QColor(pal.border_subtle))
             sl.setBorderColor(QColor(pal.surface_card))
         else:
             for r in rows[:8]:
@@ -245,7 +258,28 @@ class GraficosView(QWidget):
 
         chart.addSeries(line_saldo)
         chart.addSeries(line_res)
-        chart.createDefaultAxes()
-        for ax in chart.axes():
-            ax.setLabelsColor(QColor(pal.text_secondary))
+
+        axis_x = QCategoryAxis()
+        axis_x.setLabelsPosition(QCategoryAxis.AxisLabelsPosition.AxisLabelsPositionOnValue)
+        axis_x.setLabelsColor(QColor(pal.text_secondary))
+        axis_x.setGridLineColor(QColor(pal.border_subtle))
+        for idx, p in enumerate(evo):
+            axis_x.append(p.label, float(idx))
+        if len(evo) > 1:
+            axis_x.setRange(0.0, float(len(evo) - 1))
+        else:
+            axis_x.setRange(-0.5, 0.5)
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        line_saldo.attachAxis(axis_x)
+        line_res.attachAxis(axis_x)
+
+        span = max(100.0, abs(max_v - min_v))
+        pad = span * 0.12
+        axis_y = QValueAxis()
+        axis_y.setRange(min_v - (pad if min_v < 0 else 0.0), max_v + pad)
+        axis_y.setLabelsColor(QColor(pal.text_secondary))
+        axis_y.setGridLineColor(QColor(pal.border_subtle))
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        line_saldo.attachAxis(axis_y)
+        line_res.attachAxis(axis_y)
         view.setChart(chart)

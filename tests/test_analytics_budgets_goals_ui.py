@@ -410,4 +410,134 @@ def test_lote3_views_categorias_tags_calendario_ferramentas_redesign(tmp_path: P
         conn.close()
 
 
+def test_etapa3_dashboard_cartoes_and_orcamentos_pace_redesign(tmp_path: Path) -> None:
+    """Valida Etapa 3: Dashboard (banners e KPIs), Cartões (limites/mini-barras) e Orçamentos (ritmo e projeção)."""
+    app = QApplication.instance() or QApplication([])
+    conn = _make_env(tmp_path)
+    try:
+        from app.config.theme_palette import ThemePalette
+        from app.domain.models import REC_PARCELADA
+        from app.domain.services.credit_card_service import CreditCardService
+        from app.ui.components import (
+            BudgetPaceProgressBar,
+            InstallmentMiniBar,
+            KpiCard,
+            SegmentedBar,
+            compute_month_pace_pct,
+        )
+        from app.ui.style_manager import build_stylesheet
+        from app.ui.views.cartoes_view import CartoesView
+        from app.ui.views.dashboard_view import DashboardView
+        from app.ui.views.orcamentos_view import OrcamentosView
+
+        acc_repo = AccountRepository(conn)
+        cat_repo = CategoryRepository(conn)
+        tx = TransactionService(conn)
+        b_srv = BudgetService(conn, tx)
+        card_srv = CreditCardService(conn, tx)
+
+        acc_id = acc_repo.create_account(descricao="Conta Corrente", saldo_inicial=4000.0)
+        cats = cat_repo.list_categories("DESPESA", "1")
+        cat_a = cats[0]
+
+        b_srv.create_budget(meta=1000.0, id_categoria=cat_a.id, perc_alerta=80.0, tipo="D")
+        tx.create_expense(
+            descricao="Mercado Semanal",
+            valor=500.0,
+            data_vencimento=date(2026, 11, 10),
+            id_conta=acc_id,
+            id_categoria=cat_a.id,
+            pago=True,
+        )
+        # Cria despesa sem categoria (como ocorre em extratos Open Finance)
+        ids_uncat = tx.create_expense(
+            descricao="Pix Sem Categoria",
+            valor=120.0,
+            data_vencimento=date(2026, 11, 12),
+            id_conta=acc_id,
+            pago=True,
+        )
+        with conn.transaction() as cur:
+            cur.execute("UPDATE despesas SET id_categoria = '-1', id_subcategoria = '-1' WHERE id = ?", (ids_uncat[0],))
+
+        card = card_srv.create_card(
+            profile_id="1",
+            nome="Nubank",
+            limite=3000.0,
+            dia_fecha=2,
+            dia_venc=9,
+            id_conta=acc_id,
+        )
+        tx.create_expense(
+            descricao="Monitor 27",
+            valor=900.0,
+            data_vencimento=date(2026, 11, 9),
+            data_evento=date(2026, 10, 25),
+            id_cartao=card.id,
+            id_categoria=cat_a.id,
+            recorrencia=REC_PARCELADA,
+            num_parcelas=3,
+            profile_id="1",
+        )
+
+        navs: list[str] = []
+        ctx = ("1", 11, 2026, "")
+
+        # 1. DashboardView: KpiCards com tint, banner sem categoria e insight rápido
+        dash = DashboardView(conn, lambda: ctx, navs.append)
+        dash.show()
+        dash.refresh_data()
+        assert isinstance(dash.k_rec, KpiCard)
+        assert dash.k_rec.property("tint") == "positive"
+        assert dash.uncat_banner.isVisible() is True
+        assert "1 lançamento" in dash.lbl_uncat_text.text()
+        assert dash.insight_banner.isVisible() is True
+        assert "Categoria que mais consome" in dash.lbl_insight_text.text()
+        dash.btn_categorize.click()
+        assert navs[-1] == "transacoes"
+        dash.close()
+
+        # 2. CartoesView: Resumo de limites + InstallmentMiniBar em tbl_items
+        cview = CartoesView(conn, lambda: ctx, lambda: None)
+        cview.show()
+        cview.refresh_data()
+        assert isinstance(cview.kpi_total, KpiCard)
+        assert cview.limits_summary_card.isVisible() is True
+        assert cview.bar_total_limit.value() > 0
+        assert "utilizado" in cview.badge_limit_used.text()
+        assert len(cview.tbl_items.findChildren(InstallmentMiniBar)) >= 1
+        cview.close()
+
+        # 3. OrcamentosView: SegmentedBar, ritmo esperado, BudgetPaceProgressBar, Projeção e Status
+        elapsed, dim, pace = compute_month_pace_pct(2026, 11, today=date(2026, 11, 15))
+        assert (elapsed, dim, pace) == (15, 30, 50.0)
+
+        oview = OrcamentosView(conn, lambda: ctx, lambda: None)
+        oview.show()
+        oview.refresh_data()
+        assert isinstance(oview.seg_nature, SegmentedBar)
+        assert oview.overall_card.isVisible() is True
+        assert oview.table.columnCount() == 9
+        assert oview.table.rowCount() >= 1
+        assert len(oview.table.findChildren(BudgetPaceProgressBar)) == oview.table.rowCount()
+        assert oview.table.item(0, 8).text() in ("Em dia", "Atenção", "Estourou")
+
+        oview.seg_nature.set_active("R", emit=True)
+        assert all(b.tipo == "R" for b in oview._budgets)
+        oview.seg_nature.set_active("D", emit=True)
+        assert all(b.tipo == "D" for b in oview._budgets)
+        assert oview.stack.currentWidget() == oview.cards_scroll
+        oview.set_view_mode("table")
+        assert oview.stack.currentWidget() == oview.table
+        oview.close()
+
+        # 4. QSS Light & Dark contempla os novos banners
+        for mode in ("light", "dark"):
+            qss = build_stylesheet(ThemePalette.for_mode(mode))
+            assert "UncatBanner" in qss
+            assert "InsightBanner" in qss
+    finally:
+        conn.close()
+
+
 

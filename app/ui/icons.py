@@ -57,6 +57,20 @@ SVG_PATHS: Dict[str, str] = {
     "eye": "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
     "eye_off": "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22",
     "pencil": "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+    # Aliases e ícones complementares para evitar caixas vazias
+    "arrow-up": "M12 19V5M5 12l7-7 7 7",
+    "arrow-down": "M12 5v14M19 12l-7 7-7-7",
+    "calendar": "M3 5h18v16H3zM3 10h18M8 2v4M16 2v4",
+    "trending_up": "M23 6l-9.5 9.5-5-5L1 18M17 6h6v6",
+    "pie_chart": "M12 3v9h9A9 9 0 1 1 12 3z",
+    "chart-bar": "M3 3v18h18M7 15v3M12 9v9M17 5v13",
+    "check_circle": "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3",
+    "file_text": "M6 2h9l5 5v15H6zM14 2v6h6M9 13h7M9 17h7",
+    "chevron-left": "M15 18l-6-6 6-6",
+    "chevron-right": "M9 18l6-6-6-6",
+    "upload": "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
+    "filter": "M22 3H2l8 9.46V19l4 2v-8.54L22 3z",
+    "sparkles": "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3zM19 16v4M17 18h4",
 }
 
 _PIXMAP_CACHE: Dict[tuple, QPixmap] = {}

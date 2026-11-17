@@ -111,16 +111,170 @@ def build_stylesheet(palette: ThemePalette) -> str:
     QFrame#CardSurface {{
         background-color: {p.surface_card};
         border: 1px solid {p.border_subtle};
-        border-radius: 12px;
+        border-radius: 14px;
     }}
     QFrame#KpiCard {{
         background-color: {p.surface_card};
         border: 1px solid {p.border_subtle};
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 16px;
     }}
     QFrame#KpiCard:hover {{
         border: 1px solid {p.border_subtle};
+    }}
+    QFrame#KpiCard[tint="positive"] {{
+        background-color: rgba(22, 163, 74, 0.06);
+        border: 1px solid rgba(22, 163, 74, 0.22);
+    }}
+    QFrame#KpiCard[tint="negative"] {{
+        background-color: rgba(220, 38, 38, 0.06);
+        border: 1px solid rgba(220, 38, 38, 0.22);
+    }}
+    QFrame#KpiCard[tint="info"] {{
+        background-color: rgba(79, 70, 229, 0.06);
+        border: 1px solid rgba(79, 70, 229, 0.22);
+    }}
+    QFrame#KpiCard[tint="warning"] {{
+        background-color: rgba(217, 119, 6, 0.06);
+        border: 1px solid rgba(217, 119, 6, 0.22);
+    }}
+    QLabel#KpiIconPill {{
+        background-color: {p.app_background};
+        border: 1px solid {p.border_subtle};
+        border-radius: 8px;
+        min-width: 28px;
+        max-width: 28px;
+        min-height: 28px;
+        max-height: 28px;
+    }}
+    QFrame#ModalSeparator {{
+        background-color: {p.border_subtle};
+        border: none;
+        min-height: 1px;
+        max-height: 1px;
+    }}
+    QFrame#SegmentedControl {{
+        background-color: {p.app_background};
+        border: 1px solid {p.border_subtle};
+        border-radius: 10px;
+        padding: 3px;
+    }}
+    QPushButton#SegmentButton {{
+        background-color: transparent;
+        border: none;
+        border-radius: 7px;
+        padding: 6px 12px;
+        color: {p.text_secondary};
+        font-size: 12px;
+        font-weight: 500;
+    }}
+    QPushButton#SegmentButton:hover {{
+        color: {p.text_primary};
+    }}
+    QPushButton#SegmentButton[active="true"] {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        color: {p.text_primary};
+        font-weight: 600;
+    }}
+    QLabel#NavSectionHeader {{
+        color: {p.text_muted};
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        padding: 10px 12px 4px 12px;
+        background: transparent;
+        border: none;
+    }}
+    QFrame#SideDrawer {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        border-radius: 14px;
+    }}
+    QScrollArea#SideDrawerScroll,
+    QScrollArea#SideDrawerScroll > QWidget,
+    QScrollArea#SideDrawerScroll > QWidget > QWidget {{
+        background-color: transparent;
+        border: none;
+    }}
+    QPushButton#CountPillChip {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        border-radius: 16px;
+        padding: 5px 13px;
+        color: {p.text_secondary};
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    QPushButton#CountPillChip:hover {{
+        border-color: {p.primary};
+        color: {p.text_primary};
+    }}
+    QPushButton#CountPillChip[active="true"] {{
+        background-color: {p.text_primary};
+        border: 1px solid {p.text_primary};
+        color: {p.surface_card};
+    }}
+    QFrame#FeedDateHeader {{
+        background-color: {p.app_background};
+        border: 1px solid {p.border_subtle};
+        border-radius: 8px;
+    }}
+    QFrame#FeedRowCard {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        border-radius: 10px;
+    }}
+    QFrame#FeedRowCard:hover {{
+        border-color: {p.primary};
+    }}
+    QFrame#FeedRowCard[selected="true"] {{
+        background-color: {p.primary_active_pill};
+        border: 1px solid {p.primary};
+    }}
+    QFrame#TimelineItemCard {{
+        background-color: {p.app_background};
+        border: 1px solid {p.border_subtle};
+        border-radius: 10px;
+    }}
+    QFrame#TimelineItemCard[current="true"] {{
+        background-color: {p.primary_active_pill};
+        border: 1px solid {p.primary};
+    }}
+    QLabel#TimelineTagPaid {{
+        background-color: {p.income_badge_bg};
+        color: {p.income_green};
+        border-radius: 99px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: 700;
+    }}
+    QLabel#TimelineTagCurrent {{
+        background-color: {p.primary};
+        color: #FFFFFF;
+        border-radius: 99px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: 700;
+    }}
+    QLabel#TimelineTagFuture {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        color: {p.text_secondary};
+        border-radius: 99px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: 700;
+    }}
+    QFrame#UncatBanner {{
+        background-color: {p.warning_badge_bg};
+        border: 1px solid rgba(217, 119, 6, 0.30);
+        border-radius: 10px;
+    }}
+    QFrame#InsightBanner {{
+        background-color: {p.transfer_badge_bg};
+        border: 1px solid rgba(79, 70, 229, 0.24);
+        border-radius: 10px;
     }}
     QLabel#SectionTitle {{
         font-size: 22px;
@@ -328,6 +482,18 @@ def build_stylesheet(palette: ThemePalette) -> str:
     QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover, QDateEdit::down-button:hover {{
         background-color: {p.app_background};
     }}
+    QDateEdit::drop-down {{
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        width: 28px;
+        border-left: none;
+        border-top-right-radius: 8px;
+        border-bottom-right-radius: 8px;
+        background-color: transparent;
+    }}
+    QDateEdit::drop-down:hover {{
+        background-color: {p.app_background};
+    }}
     QCheckBox, QRadioButton {{
         spacing: 8px;
         color: {p.text_primary};
@@ -453,7 +619,7 @@ def build_stylesheet(palette: ThemePalette) -> str:
     }}
     QLineEdit#SearchInput {{
         background-color: {p.app_background};
-        border: 1px solid transparent;
+        border: 1px solid {p.border_subtle};
         border-radius: 8px;
         padding: 7px 12px;
         color: {p.text_primary};

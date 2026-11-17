@@ -158,13 +158,12 @@ def run_qa_audit() -> int:
                 f"🔴 [Contraste Dark Mode] Subtítulo no Modo Escuro com contraste muito baixo ({cr_sub:.2f}:1 < 3.0:1)"
             )
 
-        # Checa se o botão da IA usa imagem estática de fundo claro
-        from app.ui.gemini_button import NEW_SPARKLE_TILE
+        # Checa se o botão da IA usa imagem com fundo transparente (ou ícone vetorial)
+        from app.ui.gemini_button import NEW_SPARKLE_ICON
 
-        if NEW_SPARKLE_TILE.exists():
-            # Alerta se o tile estático com fundo pêssego queimado ainda está sendo usado
+        if not NEW_SPARKLE_ICON.exists():
             issues_found.append(
-                "🟡 [Aparência Dark Mode] O botão da IA ainda utiliza a imagem estática 'plutos_ai_sparkle_tile_256.png' (fundo claro fixo em pixels)."
+                "🟡 [Aparência Dark Mode] O ícone transparente do botão da IA ('plutos_ai_sparkle_256.png') não foi localizado."
             )
 
         print(f"      ✓ Contraste Título Primário: {cr_title:.2f}:1 (WCAG AA)")

@@ -67,7 +67,7 @@ from app.ui.bank_icons import (
     get_card_brand_icon,
     get_card_institution_pixmap,
 )
-from app.ui.components import Badge, EmptyStateWidget
+from app.ui.components import Badge, EmptyStateWidget, InstallmentMiniBar, KpiCard
 from app.ui.icons import get_line_icon
 from app.ui.style_manager import format_currency, format_date_br
 from app.ui.views.transacoes_view import ExpenseDialog, _qdate_to_py
@@ -853,20 +853,20 @@ class CartoesView(QWidget):
         header_row.addWidget(self.btn_new_card)
         root.addLayout(header_row)
 
-        # 2. KPI Cards Consolidados (compactos no topo)
+        # 2. KPI Cards Consolidados (com micro-ícones e tint semântico)
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(12)
         self.kpi_total, self.lbl_kpi_total, self.lbl_kpi_total_sub = self._make_kpi_card(
-            "Total das Faturas", EXPENSE_RED
+            "Total das Faturas", EXPENSE_RED, icon_name="card", tint="negative"
         )
         self.kpi_open, self.lbl_kpi_open, self.lbl_kpi_open_sub = self._make_kpi_card(
-            "Em Aberto / Fechadas", WARNING_ORANGE
+            "Em Aberto / Fechadas", WARNING_ORANGE, icon_name="clock", tint="warning"
         )
         self.kpi_limit, self.lbl_kpi_limit, self.lbl_kpi_limit_sub = self._make_kpi_card(
-            "Limite Consolidado", PRIMARY_BLUE
+            "Limite Consolidado", PRIMARY_BLUE, icon_name="target", tint="info"
         )
         self.kpi_avail, self.lbl_kpi_avail, self.lbl_kpi_avail_sub = self._make_kpi_card(
-            "Limite Disponível", INCOME_GREEN
+            "Limite Disponível", INCOME_GREEN, icon_name="check", tint="positive"
         )
         kpi_row.addWidget(self.kpi_total, 1)
         kpi_row.addWidget(self.kpi_open, 1)
@@ -904,6 +904,46 @@ class CartoesView(QWidget):
         self.cards_row_layout.addStretch()
         self.cards_scroll.setWidget(self.cards_container)
         c_lay.addWidget(self.cards_scroll)
+
+        # 3A-bis. Barra Resumo de Limites Consolidados (estilo Artha Limites e cadastro)
+        self.limits_summary_card = QFrame()
+        self.limits_summary_card.setObjectName("CardSurface")
+        ls_lay = QHBoxLayout(self.limits_summary_card)
+        ls_lay.setContentsMargins(18, 12, 18, 12)
+        ls_lay.setSpacing(16)
+
+        ls_left = QVBoxLayout()
+        ls_left.setSpacing(4)
+        lbl_ls_title = QLabel("USO CONSOLIDADO DE LIMITE")
+        lbl_ls_title.setObjectName("MutedText")
+        lbl_ls_title.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 0.06em;")
+        ls_badges = QHBoxLayout()
+        ls_badges.setSpacing(8)
+        self.badge_limit_used = Badge("R$ 0,00 utilizado", variant="info")
+        self.badge_limit_avail = Badge("R$ 0,00 disponível", variant="success")
+        ls_badges.addWidget(self.badge_limit_used)
+        ls_badges.addWidget(self.badge_limit_avail)
+        ls_badges.addStretch()
+        ls_left.addWidget(lbl_ls_title)
+        ls_left.addLayout(ls_badges)
+
+        self.bar_total_limit = QProgressBar()
+        self.bar_total_limit.setRange(0, 100)
+        self.bar_total_limit.setValue(0)
+        self.bar_total_limit.setTextVisible(False)
+        self.bar_total_limit.setFixedHeight(10)
+        self.bar_total_limit.setStyleSheet(
+            f"QProgressBar {{ background-color: rgba(148, 163, 184, 0.22); border: none; border-radius: 5px; }}"
+            f"QProgressBar::chunk {{ background-color: {PRIMARY_BLUE}; border-radius: 5px; }}"
+        )
+        self.lbl_limit_pct = QLabel("0% utilizado")
+        self.lbl_limit_pct.setObjectName("MutedText")
+        self.lbl_limit_pct.setStyleSheet("font-size: 11px; font-weight: 600;")
+
+        ls_lay.addLayout(ls_left)
+        ls_lay.addWidget(self.bar_total_limit, 1)
+        ls_lay.addWidget(self.lbl_limit_pct)
+        c_lay.addWidget(self.limits_summary_card)
 
         # 3B. Card de Detalhe da Fatura Selecionada
         self.invoice_card = QFrame()
@@ -1004,7 +1044,7 @@ class CartoesView(QWidget):
         summary_row.addLayout(summary_col)
         summary_row.addStretch()
 
-        # Botões secundários de gestão do ciclo e do cartão
+        # Botões secundários enxutos de gestão do ciclo e do cartão
         tools_row = QHBoxLayout()
         tools_row.setSpacing(6)
 
@@ -1012,34 +1052,24 @@ class CartoesView(QWidget):
         self.btn_advance.setObjectName("SecondaryButton")
         self.btn_advance.setToolTip("Registrar adiantamento de fatura")
         self.btn_advance.clicked.connect(self.advance_selected_invoice)
-
-        self.btn_edit_invoice = QPushButton("Ajustar fatura")
-        self.btn_edit_invoice.setObjectName("SecondaryButton")
-        self.btn_edit_invoice.setIcon(get_line_icon("calendar", size=15))
-        self.btn_edit_invoice.setToolTip("Ajustar limite, fechamento ou vencimento desta fatura")
-        self.btn_edit_invoice.clicked.connect(self.edit_selected_invoice_month)
-
-        self.btn_realign = QPushButton("Realinhar ciclo")
-        self.btn_realign.setObjectName("SecondaryButton")
-        self.btn_realign.setIcon(get_line_icon("refresh", size=15))
-        self.btn_realign.setToolTip("Verificar e realinhar compras ao ciclo do cartão")
-        self.btn_realign.clicked.connect(self.realign_selected_card_purchases)
-
-        self.btn_edit_card = QPushButton("Editar cartão")
-        self.btn_edit_card.setObjectName("SecondaryButton")
-        self.btn_edit_card.setIcon(get_line_icon("edit", size=15))
-        self.btn_edit_card.clicked.connect(self.edit_selected_card)
-
-        self.btn_del_card = QPushButton("Excluir cartão")
-        self.btn_del_card.setObjectName("SecondaryButton")
-        self.btn_del_card.setIcon(get_line_icon("trash", size=15))
-        self.btn_del_card.clicked.connect(self.delete_selected_card)
-
         tools_row.addWidget(self.btn_advance)
-        tools_row.addWidget(self.btn_edit_invoice)
-        tools_row.addWidget(self.btn_realign)
-        tools_row.addWidget(self.btn_edit_card)
-        tools_row.addWidget(self.btn_del_card)
+
+        self.btn_card_actions = QPushButton("Gerenciar ▾")
+        self.btn_card_actions.setObjectName("SecondaryButton")
+        self.btn_card_actions.setToolTip("Ajustar fatura, realinhar ciclo, editar ou excluir cartão")
+        card_menu = QMenu(self.btn_card_actions)
+        act_adj = card_menu.addAction(get_line_icon("calendar", size=15), "Ajustar fatura")
+        act_adj.triggered.connect(self.edit_selected_invoice_month)
+        act_realign = card_menu.addAction(get_line_icon("refresh", size=15), "Realinhar ciclo")
+        act_realign.triggered.connect(self.realign_selected_card_purchases)
+        card_menu.addSeparator()
+        act_edit_c = card_menu.addAction(get_line_icon("edit", size=15), "Editar cartão")
+        act_edit_c.triggered.connect(self.edit_selected_card)
+        act_del_c = card_menu.addAction(get_line_icon("trash", size=15), "Excluir cartão")
+        act_del_c.triggered.connect(self.delete_selected_card)
+        self.btn_card_actions.setMenu(card_menu)
+        tools_row.addWidget(self.btn_card_actions)
+
         summary_row.addLayout(tools_row)
 
         r_lay.addLayout(summary_row)
@@ -1063,7 +1093,8 @@ class CartoesView(QWidget):
         ihdr = self.tbl_items.horizontalHeader()
         ihdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         ihdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        ihdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        ihdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.tbl_items.setColumnWidth(2, 136)
         ihdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         ihdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         self.tbl_items.setColumnWidth(4, 120)
@@ -1148,29 +1179,25 @@ class CartoesView(QWidget):
         root.addWidget(self.main_stack, stretch=1)
 
     def _make_kpi_card(
-        self, title: str, accent_hex: str
-    ) -> Tuple[QFrame, QLabel, QLabel]:
-        card = QFrame()
-        card.setObjectName("KpiCard")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(18, 16, 18, 16)
-        lay.setSpacing(4)
-        lbl_t = QLabel(title.upper())
-        lbl_t.setObjectName("MutedText")
-        lbl_t.setStyleSheet("font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
-        lbl_v = QLabel("R$ 0,00")
-        f = QFont()
-        f.setPointSize(16)
-        f.setBold(True)
-        lbl_v.setFont(f)
-        lbl_v.setStyleSheet(f"color: {accent_hex};")
-        lbl_s = QLabel("")
-        lbl_s.setObjectName("MutedText")
-        lbl_s.setStyleSheet("font-size: 11px;")
-        lay.addWidget(lbl_t)
-        lay.addWidget(lbl_v)
-        lay.addWidget(lbl_s)
-        return card, lbl_v, lbl_s
+        self,
+        title: str,
+        accent_hex: str,
+        *,
+        icon_name: Optional[str] = None,
+        tint: Optional[str] = None,
+    ) -> Tuple[KpiCard, QLabel, QLabel]:
+        card = KpiCard(
+            title=title.upper(),
+            value="R$ 0,00",
+            variant="neutral",
+            subtitle="",
+            icon_name=icon_name,
+            accent_color=accent_hex,
+            tint=tint,
+        )
+        card.lbl_value.setStyleSheet(f"color: {accent_hex}; font-size: 22px; font-weight: 700;")
+        card.lbl_subtitle.setStyleSheet("font-size: 11px;")
+        return card, card.lbl_value, card.lbl_subtitle
 
     def _rebuild_card_tiles(self, selected_card_id: Optional[str]) -> None:
         while self.cards_row_layout.count() > 0:
@@ -1256,6 +1283,12 @@ class CartoesView(QWidget):
         self.lbl_kpi_avail.setText(format_currency(disponivel_total))
         self.lbl_kpi_avail_sub.setText("Soma dos limites disponíveis")
 
+        self.badge_limit_used.setText(f"{format_currency(usado_total)} utilizado")
+        self.badge_limit_avail.setText(f"{format_currency(disponivel_total)} disponível")
+        used_pct = min(100, int(round((usado_total / limite_total) * 100.0))) if limite_total > 0 else 0
+        self.bar_total_limit.setValue(used_pct)
+        self.lbl_limit_pct.setText(f"{used_pct}% utilizado de {format_currency(limite_total)}")
+
         # Sincroniza tabela oculta por compatibilidade
         self.tbl_cards.blockSignals(True)
         self.tbl_cards.setRowCount(0)
@@ -1321,13 +1354,10 @@ class CartoesView(QWidget):
             self.btn_edit_purchase.setEnabled(False)
             self.btn_delete_purchase.setEnabled(False)
             self.btn_pay_reopen.setEnabled(False)
-            self.btn_edit_invoice.setEnabled(False)
             self.btn_advance.setEnabled(False)
-            self.btn_realign.setEnabled(False)
+            self.btn_card_actions.setEnabled(False)
             self.btn_refund.setEnabled(False)
             self.btn_format_card.setEnabled(False)
-            self.btn_edit_card.setEnabled(False)
-            self.btn_del_card.setEnabled(False)
             return
 
         self.btn_prev_inv.setEnabled(True)
@@ -1337,12 +1367,9 @@ class CartoesView(QWidget):
         self.cb_filter_category.setEnabled(True)
         self.btn_add_purchase.setEnabled(True)
         self.btn_pay_reopen.setEnabled(True)
-        self.btn_edit_invoice.setEnabled(True)
         self.btn_advance.setEnabled(True)
-        self.btn_realign.setEnabled(True)
+        self.btn_card_actions.setEnabled(True)
         self.btn_format_card.setEnabled(True)
-        self.btn_edit_card.setEnabled(True)
-        self.btn_del_card.setEnabled(True)
 
         # Logo pequeno (26px) + Nome do cartão no cabeçalho da fatura
         pix = get_card_institution_pixmap(
@@ -1466,14 +1493,30 @@ class CartoesView(QWidget):
             it_desc.setData(Qt.ItemDataRole.UserRole, occ)
             self.tbl_items.setItem(row_cursor, 1, it_desc)
 
-            # 2: Parcela
+            # 2: Parcela (com mini-barra visual clicável quando parcelado; texto vazio evita sobreposição sob o widget)
             parc_str = occ.parcela_label or "1/1"
-            it_parc = QTableWidgetItem(parc_str)
+            it_parc = QTableWidgetItem("" if occ.is_installment else parc_str)
             it_parc.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if parc_str in ("1/1", "—", "À vista"):
+            if occ.is_installment:
+                it_parc.setToolTip(f"Parcela {parc_str}")
+            elif parc_str in ("1/1", "—", "À vista"):
                 it_parc.setForeground(QColor("#7B8190"))
             it_parc.setData(Qt.ItemDataRole.UserRole, occ)
             self.tbl_items.setItem(row_cursor, 2, it_parc)
+
+            if occ.is_installment:
+                mini = InstallmentMiniBar(
+                    occ.num_parcela,
+                    occ.num_parcelas,
+                    accent_hex=PRIMARY_BLUE,
+                )
+                mini.clicked.connect(lambda oid=occ.id: self._toggle_expand_occ_id(oid))
+                m_wrap = QWidget()
+                m_lay = QHBoxLayout(m_wrap)
+                m_lay.setContentsMargins(2, 0, 2, 0)
+                m_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                m_lay.addWidget(mini)
+                self.tbl_items.setCellWidget(row_cursor, 2, m_wrap)
 
             # 3: Categoria com dot colorido
             if len(occ.splits) > 1:
@@ -1535,6 +1578,10 @@ class CartoesView(QWidget):
                 row_cursor += 1
 
         self._on_item_selection_changed()
+
+    def _toggle_expand_occ_id(self, occ_id: str) -> None:
+        self._expanded_occ_id = None if self._expanded_occ_id == occ_id else occ_id
+        self._render_invoice_items()
 
     def _selected_occurrence_item(self) -> Optional[Occurrence]:
         row = self.tbl_items.currentRow()

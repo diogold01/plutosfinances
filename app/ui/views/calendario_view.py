@@ -89,7 +89,7 @@ class CalendarioView(QWidget):
         c_lay.setSpacing(10)
 
         self.calendar = QCalendarWidget()
-        self.calendar.setGridVisible(False)
+        self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(
             QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader
         )

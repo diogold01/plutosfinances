@@ -1115,6 +1115,8 @@ def test_transacoes_view_redesign_components_and_empty_state(tmp_path: Path) -> 
             profile_id="1",
         )
         view.refresh_data()
+        assert view.stack.currentWidget() == view.feed_scroll
+        view.set_view_mode("table")
         assert view.stack.currentWidget() == view.table
         assert view.table.rowCount() == 1
 
@@ -1231,6 +1233,156 @@ def test_cartoes_view_redesign_interactive_tiles_and_expandable_rows(tmp_path: P
         assert cview.lbl_invoice_title.text() == "Itaú Click"
 
         cview.close()
+    finally:
+        conn.close()
+
+
+def test_transacoes_feed_drawers_installment_ring_and_dialogs(tmp_path: Path) -> None:
+    """Valida Etapa 2: pílulas contadoras, Feed agrupado, drawers laterais e modais segmentados."""
+    app = QApplication.instance() or QApplication([])
+    conn = _make_env(tmp_path)
+    try:
+        from PySide6.QtWidgets import QFrame
+        from app.config.theme_palette import ThemePalette
+        from app.domain.models import KIND_DESPESA, KIND_RECEITA, KIND_TRANSFERENCIA, REC_PARCELADA
+        from app.ui.components import DonutProgressRing, InstallmentMiniBar, SegmentedBar, SideDrawer
+        from app.ui.style_manager import build_stylesheet
+        from app.ui.views.transacoes_view import ExpenseDialog, IncomeDialog, TransacoesView
+
+        tx = TransactionService(conn)
+        acc_repo = AccountRepository(conn)
+        accounts = acc_repo.list_accounts("1")
+        acc_id = accounts[0].id
+        card_srv = CreditCardService(conn, tx)
+        card = card_srv.create_card(
+            profile_id="1",
+            nome="Nubank Gold",
+            limite=5000.0,
+            dia_fecha=2,
+            dia_venc=9,
+            id_conta=acc_id,
+        )
+
+        # Cria 1 receita, 1 despesa parcelada no cartão (4x) e 1 despesa simples
+        tx.create_income(
+            descricao="Salário Mensal",
+            valor=5000.0,
+            data=date(2026, 11, 5),
+            id_conta=acc_id,
+            profile_id="1",
+            recebido=True,
+        )
+        tx.create_expense(
+            descricao="Curso Alura",
+            valor=400.0,
+            data_vencimento=date(2026, 11, 9),
+            data_evento=date(2026, 10, 20),
+            id_cartao=card.id,
+            recorrencia=REC_PARCELADA,
+            num_parcelas=4,
+            profile_id="1",
+        )
+        tx.create_expense(
+            descricao="Café Expresso",
+            valor=15.0,
+            data_vencimento=date(2026, 11, 6),
+            id_conta=acc_id,
+            profile_id="1",
+        )
+
+        ctx = ("1", 11, 2026, "")
+        view = TransacoesView(
+            db=conn,
+            get_context=lambda: ctx,
+            on_data_mutated=lambda: None,
+        )
+        view.show()
+        view.refresh_data()
+
+        # Muda filtro de fonte para ALL para contemplar conta + cartão
+        idx_all = view.cb_filter_source.findData("ALL")
+        assert idx_all >= 0
+        view.cb_filter_source.setCurrentIndex(idx_all)
+        view.refresh_data()
+
+        # 1. Pílulas contadoras refletem Tudo=3, Receitas=1, Despesas=2, Transferências=0
+        assert view.count_pills["ALL"].text() == "Tudo 3"
+        assert view.count_pills[KIND_RECEITA].text() == "Receitas 1"
+        assert view.count_pills[KIND_DESPESA].text() == "Despesas 2"
+        assert view.count_pills[KIND_TRANSFERENCIA].text() == "Transferências 0"
+
+        # Clicar na pílula Receitas filtra a exibição
+        view.count_pills[KIND_RECEITA].click()
+        assert len(view._occurrences) == 1
+        assert view._occurrences[0].descricao == "Salário Mensal"
+        view.count_pills["ALL"].click()
+        assert len(view._occurrences) == 3
+
+        # 2. Inicia em Feed por Data e alterna para Tabela com mini-barra de parcelas
+        parc_occ = next(o for o in view._occurrences if o.is_installment)
+        assert isinstance(view.seg_view_mode, SegmentedBar)
+        assert view.stack.currentWidget() == view.feed_scroll
+        date_headers = [
+            w for w in view.feed_host.findChildren(QFrame) if w.objectName() == "FeedDateHeader"
+        ]
+        feed_cards = [
+            w for w in view.feed_host.findChildren(QFrame) if w.objectName() == "FeedRowCard"
+        ]
+        assert len(date_headers) >= 2
+        assert len(feed_cards) == 3
+
+        view.set_view_mode("table")
+        assert view.stack.currentWidget() == view.table
+        assert len(view.table.findChildren(InstallmentMiniBar)) >= 1
+
+        # 3. Drawer de Detalhe de Parcelas (DonutProgressRing + Timeline vertical)
+        series = tx.list_installment_series(parc_occ)
+        assert len(series) == 4
+        view.open_installment_drawer(parc_occ)
+        assert isinstance(view.installment_drawer, SideDrawer)
+        assert view.installment_drawer.isVisible() is True
+        assert view.filter_drawer.isVisible() is False
+        assert len(view.installment_drawer.findChildren(DonutProgressRing)) == 1
+        tl_cards = [
+            w
+            for w in view.installment_drawer.findChildren(QFrame)
+            if w.objectName() == "TimelineItemCard"
+        ]
+        assert len(tl_cards) == 4
+
+        # 4. Drawer de Filtros Avançados fecha o drawer de parcelas e abre corretamente
+        view.open_advanced_filters_drawer()
+        assert view.filter_drawer.isVisible() is True
+        assert view.installment_drawer.isVisible() is False
+        view.filter_drawer.close_drawer()
+        assert view.filter_drawer.isVisible() is False
+
+        # 5. ExpenseDialog & IncomeDialog com SegmentedBar sincronizado com cb_kind
+        dlg_exp = ExpenseDialog(conn, "1", date(2026, 11, 16))
+        assert hasattr(dlg_exp, "seg_kind")
+        assert dlg_exp.seg_kind.current_key == KIND_DESPESA
+        dlg_exp.seg_kind.set_active(KIND_RECEITA, emit=True)
+        assert dlg_exp.selected_kind() == KIND_RECEITA
+        dlg_exp.cb_kind.setCurrentIndex(0)
+        assert dlg_exp.seg_kind.current_key == KIND_DESPESA
+        dlg_exp.close()
+
+        dlg_inc = IncomeDialog(conn, "1", date(2026, 11, 16))
+        assert hasattr(dlg_inc, "seg_kind")
+        assert dlg_inc.seg_kind.current_key == KIND_RECEITA
+        dlg_inc.seg_kind.set_active(KIND_DESPESA, emit=True)
+        assert dlg_inc.selected_kind() == KIND_DESPESA
+        dlg_inc.close()
+
+        # 6. QSS Light & Dark contém os seletores da Etapa 2
+        for mode in ("light", "dark"):
+            qss = build_stylesheet(ThemePalette.for_mode(mode))
+            assert "SideDrawer" in qss
+            assert "CountPillChip" in qss
+            assert "FeedDateHeader" in qss
+            assert "TimelineItemCard" in qss
+
+        view.close()
     finally:
         conn.close()
 

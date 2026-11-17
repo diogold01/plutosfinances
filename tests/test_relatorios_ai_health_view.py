@@ -262,3 +262,77 @@ def test_relatorios_ai_health_persistence_proactive_cards_and_copilot(
     assert panel.btn_ask_copilot.isEnabled()
 
     conn.close()
+
+
+def test_etapa4_clarity_panel_graficos_scroll_and_kpi_tints(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    """Valida Etapa 4: Clareza Financeira (DRE & Heatmap), QScrollArea em Gráficos e KpiCards."""
+    from PySide6.QtWidgets import QProgressBar, QScrollArea
+    from app.ui.components import KpiCard
+    from app.ui.views.contas_view import ContasView
+    from app.ui.views.graficos_view import GraficosView
+    from app.ui.views.objetivos_view import ObjetivosView
+
+    conn = _setup_test_db(tmp_path)
+    try:
+        tx_srv = TransactionService(conn)
+        cat_repo = CategoryRepository(conn)
+        acc_repo = AccountRepository(conn)
+
+        acc_id = acc_repo.create_account("Conta Principal", saldo_inicial=1000.0)
+        c_sal = cat_repo.create_category(KIND_RECEITA, "Salário", color_hex="#16A34A")
+        c_merc = cat_repo.create_category(KIND_DESPESA, "Mercado", color_hex="#DC2626")
+
+        tx_srv.create_income(
+            descricao="Salário Nov",
+            valor=6000.0,
+            data=date(2026, 11, 5),
+            id_conta=acc_id,
+            id_categoria=c_sal.id,
+            recebido=True,
+        )
+        tx_srv.create_expense(
+            descricao="Supermercado Nov",
+            valor=1200.0,
+            data_vencimento=date(2026, 11, 10),
+            id_conta=acc_id,
+            id_categoria=c_merc.id,
+            pago=True,
+        )
+
+        ctx = ("1", 11, 2026, "")
+        rview = RelatoriosView(conn, get_context=lambda: ctx)
+        rview.show()
+
+        idx_cl = rview.cb_report_type.findData("CLARITY")
+        assert idx_cl != -1
+        rview.cb_report_type.setCurrentIndex(idx_cl)
+        assert rview.stack.currentWidget() == rview.clarity_panel
+        assert rview.clarity_panel.tbl_dre.columnCount() == 6
+        assert rview.clarity_panel.tbl_dre.rowCount() >= 3
+        row_names = [
+            rview.clarity_panel.tbl_dre.item(r, 0).text()
+            for r in range(rview.clarity_panel.tbl_dre.rowCount())
+        ]
+        assert "Total Receitas" in row_names
+        assert "Total Despesas" in row_names
+        assert "Resultado Líquido" in row_names
+        assert len(rview.clarity_panel.ranking_card.findChildren(QProgressBar)) >= 1
+        rview.close()
+
+        gview = GraficosView(conn, get_context=lambda: ctx)
+        assert len(gview.findChildren(QScrollArea)) >= 1
+        gview.close()
+
+        cview = ContasView(conn, get_context=lambda: ctx, on_data_mutated=lambda: None)
+        assert isinstance(cview.card_atual, KpiCard)
+        assert cview.card_atual.property("tint") == "positive"
+        cview.close()
+
+        oview = ObjetivosView(conn, get_context=lambda: ctx, on_data_mutated=lambda: None)
+        assert oview.kpi_meta.property("tint") == "info"
+        assert oview.kpi_acum.property("tint") == "positive"
+        oview.close()
+    finally:
+        conn.close()

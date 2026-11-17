@@ -153,50 +153,50 @@ class ThemePalette:
     def light(cls) -> "ThemePalette":
         return cls(
             mode="light",
-            primary="#E5603D",           # --ac: Plutos Terracotta / Laranja característico
-            primary_hover="#D45230",     # Hover refinado do botão primário
-            primary_active_pill="#FDECE6",# --acs: Fundo sutil do item ativo de navegação
-            app_background="#F4F5F7",    # --bg: Fundo geral da aplicação
-            surface_card="#FFFFFF",      # --sf: Superfície de cards e painéis
-            surface_header="#FFFFFF",    # --sf: Topbar padronizada
-            surface_sidebar="#FFFFFF",   # --sf: Sidebar 216px com separador de linha
-            border_subtle="#E8EAEE",     # --ln: Bordas sutis
-            text_primary="#1B1D22",      # --tx: Texto de alto contraste
-            text_secondary="#7B8190",    # --mu: Rótulos e textos secundários
-            text_muted="#7B8190",        # --mu: Textos atenuados
-            income_green="#1F9D6A",      # --gr: Verde para receitas e valores positivos
-            income_badge_bg="#E8F5F0",   # 16% verde srgb
-            expense_red="#D64545",       # --rd: Vermelho para despesas e valores negativos
-            expense_badge_bg="#FBECED",  # 16% vermelho srgb
-            warning_orange="#C98A12",    # --am: Âmbar/amarelo para alertas e pendências
-            warning_badge_bg="#F9F3E7",  # 16% âmbar srgb
-            transfer_indigo="#3A78D8",   # --bl: Azul para transferências e informações
-            transfer_badge_bg="#EBF1FB", # 16% azul srgb
+            primary="#5B5BD6",            # --ac: Índigo Artha primário
+            primary_hover="#4A4AC4",      # Hover refinado do botão primário
+            primary_active_pill="#EEF0FF",# --acs: Fundo suave do item ativo de navegação
+            app_background="#F8FAFC",     # --bg: Fundo claro SaaS (cool slate)
+            surface_card="#FFFFFF",       # --sf: Superfície de cards e painéis
+            surface_header="#FFFFFF",     # --sf: Topbar padronizada
+            surface_sidebar="#FFFFFF",    # --sf: Sidebar 216px com separador sutil
+            border_subtle="#E2E8F0",      # --ln: Bordas sutis nítidas (1px)
+            text_primary="#0F172A",       # --tx: Texto principal de alto contraste
+            text_secondary="#64748B",     # --mu: Rótulos e textos secundários (WCAG AA)
+            text_muted="#64748B",         # --mu: Textos atenuados
+            income_green="#16A34A",       # --gr: Verde esmeralda para receitas
+            income_badge_bg="#DCFCE7",    # Fundo pastel verde
+            expense_red="#DC2626",        # --rd: Vermelho para despesas
+            expense_badge_bg="#FEE2E2",   # Fundo pastel vermelho
+            warning_orange="#D97706",     # --am: Âmbar para alertas e pendências
+            warning_badge_bg="#FEF3C7",   # Fundo pastel âmbar
+            transfer_indigo="#4F46E5",    # --bl: Índigo para transferências e destaques
+            transfer_badge_bg="#EEF2FF",  # Fundo pastel índigo
         )
 
     @classmethod
     def dark(cls) -> "ThemePalette":
         return cls(
             mode="dark",
-            primary="#E5603D",           # --ac: Laranja característico Plutos
-            primary_hover="#EF7555",     # Hover primário no modo escuro
-            primary_active_pill="#3A241D",# --acs: Fundo sutil ativo escuro
-            app_background="#131519",    # --bg: Fundo escuro imersivo
-            surface_card="#1B1E24",      # --sf: Superfície de cards escuro
-            surface_header="#1B1E24",    # --sf: Topbar escuro
-            surface_sidebar="#1B1E24",   # --sf: Sidebar escuro
-            border_subtle="#2A2E36",     # --ln: Linhas divisórias escuras
-            text_primary="#ECEEF2",      # --tx: Texto primário escuro (contraste 11.2:1)
-            text_secondary="#9CA3AF",    # --mu: Texto secundário escuro legível (contraste 5.8:1 WCAG AA)
-            text_muted="#9CA3AF",        # --mu: Textos atenuados escuro legível (contraste 5.8:1 WCAG AA)
-            income_green="#3CC08B",      # --gr: Verde vibrante para tema escuro
-            income_badge_bg="#1A3328",   # Fundo suave verde no escuro
-            expense_red="#EF6A6A",       # --rd: Vermelho vibrante no escuro
-            expense_badge_bg="#362224",  # Fundo suave vermelho no escuro
-            warning_orange="#E3A93A",    # --am: Âmbar vibrante no escuro
-            warning_badge_bg="#342B1D",  # Fundo suave âmbar no escuro
-            transfer_indigo="#6AA0F0",   # --bl: Azul claro vibrante no escuro
-            transfer_badge_bg="#202A3C", # Fundo suave azul no escuro
+            primary="#6366F1",            # --ac: Índigo Artha vibrante no modo escuro
+            primary_hover="#7578F5",      # Hover primário no modo escuro
+            primary_active_pill="#23254A",# --acs: Fundo sutil ativo escuro
+            app_background="#0F1117",     # --bg: Fundo escuro imersivo
+            surface_card="#181B23",       # --sf: Superfície de cards escuro
+            surface_header="#181B23",     # --sf: Topbar escuro
+            surface_sidebar="#181B23",    # --sf: Sidebar escuro
+            border_subtle="#282D3A",      # --ln: Linhas divisórias escuras
+            text_primary="#F1F5F9",       # --tx: Texto primário escuro (contraste > 13:1)
+            text_secondary="#94A3B8",     # --mu: Texto secundário escuro legível (WCAG AA)
+            text_muted="#94A3B8",         # --mu: Textos atenuados escuro legível (WCAG AA)
+            income_green="#3CC08B",       # --gr: Verde vibrante para tema escuro
+            income_badge_bg="#163326",    # Fundo suave verde no escuro
+            expense_red="#F87171",        # --rd: Vermelho vibrante no escuro
+            expense_badge_bg="#361E22",   # Fundo suave vermelho no escuro
+            warning_orange="#FBBF24",     # --am: Âmbar vibrante no escuro
+            warning_badge_bg="#342A18",   # Fundo suave âmbar no escuro
+            transfer_indigo="#818CF8",    # --bl: Índigo claro vibrante no escuro
+            transfer_badge_bg="#1E2238",  # Fundo suave índigo no escuro
         )
 
     @classmethod
@@ -204,9 +204,9 @@ class ThemePalette:
         return cls.dark() if str(mode).lower() == "dark" else cls.light()
 
 
-# Constantes semânticas diretas para uso em views, badges e gráficos (Estética Plutos Redesign)
-PRIMARY_ACCENT = "#E5603D"
-PRIMARY_BLUE = "#E5603D"  # Mantido para retrocompatibilidade
+# Constantes semânticas diretas para uso em views, badges e gráficos (Estética Artha Indigo)
+PRIMARY_ACCENT = "#5B5BD6"
+PRIMARY_BLUE = "#5B5BD6"  # Mantido para retrocompatibilidade
 INCOME_GREEN = "#1F9D6A"
 EXPENSE_RED = "#D64545"
 WARNING_ORANGE = "#C98A12"

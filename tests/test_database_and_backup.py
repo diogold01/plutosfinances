@@ -64,7 +64,7 @@ def test_color_palette_and_argb_conversions() -> None:
 
     light = ThemePalette.for_mode("light")
     dark = ThemePalette.for_mode("dark")
-    assert light.primary in ("#E5603D", "#D97757")
+    assert light.primary in ("#5B5BD6", "#E5603D", "#D97757")
     assert dark.mode == "dark"
 
 

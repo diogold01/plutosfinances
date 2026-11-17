@@ -46,7 +46,7 @@ from app.ui.bank_icons import (
     get_bank_icon,
     list_available_bank_icons,
 )
-from app.ui.components import EmptyStateWidget
+from app.ui.components import EmptyStateWidget, KpiCard
 from app.ui.icons import get_line_icon
 from app.ui.style_manager import format_currency, format_month_year
 from app.ui.views.open_finance_dialog import OpenFinanceSyncDialog
@@ -463,21 +463,21 @@ class ContasView(QWidget):
         cards_row = QHBoxLayout()
         cards_row.setSpacing(12)
         self.card_atual, self.lbl_val_atual = self._create_kpi_card(
-            "Saldo Confirmado", "R$ 0,00", INCOME_GREEN
+            "Saldo Confirmado", "R$ 0,00", INCOME_GREEN, icon_name="check", tint="positive"
         )
         self.card_previsto, self.lbl_val_previsto = self._create_kpi_card(
-            "Saldo Previsto", "R$ 0,00", PRIMARY_BLUE
+            "Saldo Previsto", "R$ 0,00", PRIMARY_BLUE, icon_name="wallet", tint="info"
         )
         self.card_invest, self.lbl_val_invest = self._create_kpi_card(
-            "Total Investimentos", "R$ 0,00", PRIMARY_BLUE
+            "Total Investimentos", "R$ 0,00", PRIMARY_BLUE, icon_name="chart", tint="info"
         )
         self.card_cheque, self.lbl_val_cheque = self._create_kpi_card(
-            "Cheque Especial Disp.", "R$ 0,00", "#7B8190"
+            "Cheque Especial Disp.", "R$ 0,00", "#7B8190", icon_name="bank", tint=None
         )
-        cards_row.addWidget(self.card_atual)
-        cards_row.addWidget(self.card_previsto)
-        cards_row.addWidget(self.card_invest)
-        cards_row.addWidget(self.card_cheque)
+        cards_row.addWidget(self.card_atual, 1)
+        cards_row.addWidget(self.card_previsto, 1)
+        cards_row.addWidget(self.card_invest, 1)
+        cards_row.addWidget(self.card_cheque, 1)
         root.addLayout(cards_row)
 
         # Tabela em Stack com Empty State
@@ -528,25 +528,25 @@ class ContasView(QWidget):
         root.addWidget(self.stack, stretch=1)
 
     def _create_kpi_card(
-        self, title: str, initial_val: str, accent_hex: str
-    ) -> tuple[QFrame, QLabel]:
-        card = QFrame()
-        card.setObjectName("KpiCard")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(18, 16, 18, 16)
-        lay.setSpacing(4)
-        lbl_t = QLabel(title.upper())
-        lbl_t.setObjectName("MutedText")
-        lbl_t.setStyleSheet("font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
-        lbl_v = QLabel(initial_val)
-        f = QFont()
-        f.setPointSize(16)
-        f.setBold(True)
-        lbl_v.setFont(f)
-        lbl_v.setStyleSheet(f"color: {accent_hex};")
-        lay.addWidget(lbl_t)
-        lay.addWidget(lbl_v)
-        return card, lbl_v
+        self,
+        title: str,
+        initial_val: str,
+        accent_hex: str,
+        *,
+        icon_name: Optional[str] = None,
+        tint: Optional[str] = None,
+    ) -> tuple[KpiCard, QLabel]:
+        card = KpiCard(
+            title=title.upper(),
+            value=initial_val,
+            variant="neutral",
+            subtitle="",
+            icon_name=icon_name,
+            accent_color=accent_hex,
+            tint=tint,
+        )
+        card.lbl_value.setStyleSheet(f"color: {accent_hex}; font-size: 22px; font-weight: 700;")
+        return card, card.lbl_value
 
     def _on_selection_changed(self) -> None:
         has_sel = self.table.currentRow() >= 0 and len(self._summaries) > 0

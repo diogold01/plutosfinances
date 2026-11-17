@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Tuple
+from datetime import date
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
@@ -32,6 +33,7 @@ from app.config.theme_palette import (
     ThemePalette,
 )
 from app.database.connection_manager import ConnectionManager
+from app.domain.date_utils import add_months
 from app.domain.models import KIND_DESPESA, KIND_RECEITA
 from app.domain.services.ai_service import AIService, FinancialHealthReport
 from app.domain.services.analytics_service import AnalyticsService, FinancialHealthData
@@ -39,7 +41,7 @@ from app.ui.ai_worker import AICopilotWorker, FinancialHealthWorker
 from app.ui.bank_icons import create_color_badge_icon
 from app.ui.components import Badge, EmptyStateWidget, KpiCard
 from app.ui.icons import get_line_icon, get_line_pixmap
-from app.ui.style_manager import format_currency
+from app.ui.style_manager import PT_BR_MONTHS, format_currency
 
 
 class FinancialHealthPanel(QWidget):
@@ -132,7 +134,7 @@ class FinancialHealthPanel(QWidget):
         e_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_e_ico = QLabel()
-        lbl_e_ico.setPixmap(get_line_pixmap("sparkles", color="#E5603D", size=28))
+        lbl_e_ico.setPixmap(get_line_pixmap("sparkles", color="#5B5BD6", size=28))
         lbl_e_ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
         e_lay.addWidget(lbl_e_ico)
 
@@ -709,7 +711,7 @@ class FinancialHealthPanel(QWidget):
             lbl_num.setFixedSize(24, 24)
             lbl_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl_num.setStyleSheet(
-                "background-color: #E5603D; color: #FFFFFF; font-weight: 700; "
+                "background-color: #5B5BD6; color: #FFFFFF; font-weight: 700; "
                 "border-radius: 12px; font-size: 12px; padding: 0px; border: none;"
             )
             lbl_rec_txt = QLabel(rec)
@@ -799,6 +801,218 @@ class FinancialHealthPanel(QWidget):
         self.lbl_copilot_answer.setVisible(True)
 
 
+class FinancialClarityPanel(QWidget):
+    """Painel de Clareza Financeira: matriz mensal DRE com heatmap suave e ranking de gastos."""
+
+    def __init__(
+        self,
+        db: ConnectionManager,
+        analytics: AnalyticsService,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.db = db
+        self.analytics = analytics
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        host = QWidget()
+        host.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(host)
+        lay.setContentsMargins(2, 2, 6, 8)
+        lay.setSpacing(14)
+
+        # 1. Matriz DRE com Heatmap (3 meses + Total + Média)
+        self.dre_card = QFrame()
+        self.dre_card.setObjectName("CardSurface")
+        dre_lay = QVBoxLayout(self.dre_card)
+        dre_lay.setContentsMargins(18, 16, 18, 16)
+        dre_lay.setSpacing(10)
+
+        lbl_dre_t = QLabel("Matriz Mensal por Categoria (DRE & Heatmap)")
+        lbl_dre_t.setStyleSheet("font-size: 15px; font-weight: 700;")
+        lbl_dre_sub = QLabel(
+            "Comparativo dos últimos 3 meses, soma acumulada e média mensal por categoria"
+        )
+        lbl_dre_sub.setObjectName("MutedText")
+        dre_lay.addWidget(lbl_dre_t)
+        dre_lay.addWidget(lbl_dre_sub)
+
+        self.tbl_dre = QTableWidget(0, 6)
+        self.tbl_dre.setShowGrid(False)
+        self.tbl_dre.verticalHeader().setVisible(False)
+        self.tbl_dre.verticalHeader().setDefaultSectionSize(38)
+        self.tbl_dre.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_dre.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.tbl_dre.setMinimumHeight(260)
+        dre_lay.addWidget(self.tbl_dre)
+        lay.addWidget(self.dre_card)
+
+        # 2. Ranking Horizontal de Maiores Gastos do Período
+        self.ranking_card = QFrame()
+        self.ranking_card.setObjectName("CardSurface")
+        rk_lay = QVBoxLayout(self.ranking_card)
+        rk_lay.setContentsMargins(18, 16, 18, 16)
+        rk_lay.setSpacing(10)
+
+        lbl_rk_t = QLabel("Maiores Gastos do Período")
+        lbl_rk_t.setStyleSheet("font-size: 15px; font-weight: 700;")
+        rk_lay.addWidget(lbl_rk_t)
+
+        self.ranking_list_lay = QVBoxLayout()
+        self.ranking_list_lay.setSpacing(8)
+        rk_lay.addLayout(self.ranking_list_lay)
+        lay.addWidget(self.ranking_card)
+
+        lay.addStretch()
+        scroll.setWidget(host)
+        root.addWidget(scroll)
+
+    def load_context(self, profile_id: str, month: int, year: int, mode: str) -> None:
+        base_dt = date(year, month, 1)
+        periods = [add_months(base_dt, offset) for offset in (-2, -1, 0)]
+        headers = ["Categoria"] + [
+            f"{PT_BR_MONTHS.get(p.month, str(p.month))[:3].upper()}/{str(p.year)[-2:]}"
+            for p in periods
+        ] + ["Total", "Média"]
+        self.tbl_dre.setColumnCount(6)
+        self.tbl_dre.setHorizontalHeaderLabels(headers)
+
+        hdr = self.tbl_dre.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 6):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+
+        # Coleta receitas e despesas por categoria para os 3 meses
+        inc_map: Dict[str, List[float]] = {}
+        exp_map: Dict[str, List[float]] = {}
+        exp_colors: Dict[str, str] = {}
+
+        for p_idx, p_dt in enumerate(periods):
+            for r in self.analytics.category_breakdown(
+                p_dt.year, p_dt.month, kind=KIND_RECEITA, profile_id=profile_id, mode=mode
+            ):
+                vals = inc_map.setdefault(r.categoria_nome, [0.0, 0.0, 0.0])
+                vals[p_idx] += r.total
+            for r in self.analytics.category_breakdown(
+                p_dt.year, p_dt.month, kind=KIND_DESPESA, profile_id=profile_id, mode=mode
+            ):
+                vals = exp_map.setdefault(r.categoria_nome, [0.0, 0.0, 0.0])
+                vals[p_idx] += r.total
+                exp_colors[r.categoria_nome] = r.cor_hex
+
+        max_inc = max((max(v) for v in inc_map.values()), default=0.0)
+        max_exp = max((max(v) for v in exp_map.values()), default=0.0)
+
+        self.tbl_dre.setRowCount(0)
+        f_bold = QFont()
+        f_bold.setBold(True)
+
+        def _append_row(
+            name: str,
+            vals3: List[float],
+            *,
+            kind_tint: str = "",
+            max_ref: float = 0.0,
+            is_summary: bool = False,
+        ) -> None:
+            r_idx = self.tbl_dre.rowCount()
+            self.tbl_dre.insertRow(r_idx)
+            it_n = QTableWidgetItem(name)
+            if is_summary:
+                it_n.setFont(f_bold)
+            self.tbl_dre.setItem(r_idx, 0, it_n)
+
+            tot = round(sum(vals3), 2)
+            avg = round(tot / 3.0, 2)
+            for c_idx, val in enumerate([*vals3, tot, avg], start=1):
+                it = QTableWidgetItem(format_currency(val))
+                it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                if is_summary:
+                    it.setFont(f_bold)
+                if c_idx <= 3 and max_ref > 0 and val > 0 and kind_tint:
+                    ratio = min(1.0, val / max_ref)
+                    alpha = int(18 + ratio * 65)
+                    bg = QColor(22, 163, 74, alpha) if kind_tint == "inc" else QColor(220, 38, 38, alpha)
+                    it.setBackground(bg)
+                elif is_summary and kind_tint == "res":
+                    col = QColor(22, 163, 74, 42) if val >= 0 else QColor(220, 38, 38, 42)
+                    it.setBackground(col)
+                self.tbl_dre.setItem(r_idx, c_idx, it)
+
+        tot_inc_3 = [0.0, 0.0, 0.0]
+        for cat_name, vals in sorted(inc_map.items(), key=lambda kv: sum(kv[1]), reverse=True):
+            _append_row(f"  {cat_name}", vals, kind_tint="inc", max_ref=max_inc)
+            for i in range(3):
+                tot_inc_3[i] += vals[i]
+        _append_row("Total Receitas", tot_inc_3, kind_tint="inc", is_summary=True)
+
+        tot_exp_3 = [0.0, 0.0, 0.0]
+        for cat_name, vals in sorted(exp_map.items(), key=lambda kv: sum(kv[1]), reverse=True):
+            _append_row(f"  {cat_name}", vals, kind_tint="exp", max_ref=max_exp)
+            for i in range(3):
+                tot_exp_3[i] += vals[i]
+        _append_row("Total Despesas", tot_exp_3, kind_tint="exp", is_summary=True)
+
+        res_3 = [round(tot_inc_3[i] - tot_exp_3[i], 2) for i in range(3)]
+        _append_row("Resultado Líquido", res_3, kind_tint="res", is_summary=True)
+
+        # Ranking Maiores Gastos do mês ativo
+        while self.ranking_list_lay.count():
+            it = self.ranking_list_lay.takeAt(0)
+            w = it.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+        cur_exp = self.analytics.category_breakdown(
+            year, month, kind=KIND_DESPESA, profile_id=profile_id, mode=mode
+        )
+        if not cur_exp:
+            lbl_empty = QLabel("Nenhuma despesa registrada neste período.")
+            lbl_empty.setObjectName("MutedText")
+            self.ranking_list_lay.addWidget(lbl_empty)
+            return
+
+        top_val = max(r.total for r in cur_exp[:6]) or 1.0
+        for row in cur_exp[:6]:
+            item_w = QWidget()
+            v_lay = QVBoxLayout(item_w)
+            v_lay.setContentsMargins(0, 2, 0, 2)
+            v_lay.setSpacing(4)
+
+            top_h = QHBoxLayout()
+            lbl_c = QLabel(row.categoria_nome)
+            lbl_c.setStyleSheet("font-size: 13px; font-weight: 600;")
+            lbl_v = QLabel(f"{format_currency(row.total)} ({row.percentual:.1f}%)")
+            lbl_v.setStyleSheet("font-size: 12px; font-weight: 700;")
+            top_h.addWidget(lbl_c)
+            top_h.addStretch()
+            top_h.addWidget(lbl_v)
+            v_lay.addLayout(top_h)
+
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(max(2, int(round((row.total / top_val) * 100.0))))
+            bar.setTextVisible(False)
+            bar.setFixedHeight(8)
+            bar_col = row.cor_hex or EXPENSE_RED
+            bar.setStyleSheet(
+                f"QProgressBar {{ background-color: rgba(148, 163, 184, 0.20); border: none; border-radius: 4px; }}"
+                f"QProgressBar::chunk {{ background-color: {bar_col}; border-radius: 4px; }}"
+            )
+            v_lay.addWidget(bar)
+            self.ranking_list_lay.addWidget(item_w)
+
+
 class RelatoriosView(QWidget):
     """
     Tela nativa de Relatórios Tabulares e Analíticos:
@@ -847,7 +1061,7 @@ class RelatoriosView(QWidget):
         # Botão de Destaque Imediato da IA (Acesso Direto com 1 Clique)
         self.btn_toggle_ai_report = QPushButton("Diagnóstico IA")
         self.btn_toggle_ai_report.setObjectName("SecondaryButton")
-        self.btn_toggle_ai_report.setIcon(get_line_icon("sparkle", size=14, color="#E5603D"))
+        self.btn_toggle_ai_report.setIcon(get_line_icon("sparkle", size=14, color="#5B5BD6"))
         self.btn_toggle_ai_report.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_toggle_ai_report.setMinimumHeight(32)
         self.btn_toggle_ai_report.setStyleSheet(
@@ -877,6 +1091,7 @@ class RelatoriosView(QWidget):
         self.cb_report_type.addItem(
             "Compras / Repasses de Terceiros (Não-Operacionais)", "TERCEIROS"
         )
+        self.cb_report_type.addItem("Clareza Financeira (DRE & Heatmap)", "CLARITY")
         self.cb_report_type.addItem("✨ Diagnóstico & Saúde Financeira (IA)", "AI_HEALTH")
         self.cb_report_type.currentIndexChanged.connect(lambda _: self.refresh_data())
 
@@ -895,6 +1110,7 @@ class RelatoriosView(QWidget):
             subtitle="Confirmado no período",
             icon_name="check_circle",
             accent_color=INCOME_GREEN,
+            tint="positive",
         )
         self.kpi_pending = KpiCard(
             title="Total Pendente",
@@ -902,6 +1118,7 @@ class RelatoriosView(QWidget):
             subtitle="Pendente no período",
             icon_name="clock",
             accent_color=EXPENSE_RED,
+            tint="negative",
         )
         self.kpi_total = KpiCard(
             title="Soma Geral",
@@ -909,6 +1126,7 @@ class RelatoriosView(QWidget):
             subtitle="Resultado consolidado",
             icon_name="file_text",
             accent_color=PRIMARY_BLUE,
+            tint="info",
         )
         kpi_row.addWidget(self.kpi_confirmed, 1)
         kpi_row.addWidget(self.kpi_pending, 1)
@@ -945,6 +1163,9 @@ class RelatoriosView(QWidget):
         self.health_panel = FinancialHealthPanel(self.db, self.analytics, self)
         self.stack.addWidget(self.health_panel)
 
+        self.clarity_panel = FinancialClarityPanel(self.db, self.analytics, self)
+        self.stack.addWidget(self.clarity_panel)
+
         card_lay.addWidget(self.stack, stretch=1)
         root.addWidget(table_card, stretch=1)
 
@@ -971,8 +1192,30 @@ class RelatoriosView(QWidget):
             self.btn_toggle_ai_report.setToolTip("Retornar à visualização de tabelas e categorias")
         else:
             self.btn_toggle_ai_report.setText("Diagnóstico IA")
-            self.btn_toggle_ai_report.setIcon(get_line_icon("sparkle", size=14, color="#E5603D"))
+            self.btn_toggle_ai_report.setIcon(get_line_icon("sparkle", size=14, color="#5B5BD6"))
             self.btn_toggle_ai_report.setToolTip("Visualizar Diagnóstico de Saúde Financeira com IA")
+
+        if rtype == "CLARITY":
+            pts = self.analytics.monthly_evolution(
+                year, month, months_count=1, profile_id=profile_id, mode=mode
+            )
+            cur_rec = pts[0].receitas if pts else 0.0
+            cur_desp = pts[0].despesas if pts else 0.0
+            self.kpi_confirmed.set_title("Receitas do Mês")
+            self.kpi_confirmed.set_value(format_currency(cur_rec))
+            self.kpi_confirmed.set_subtitle(f"Competência {month:02d}/{year}")
+
+            self.kpi_pending.set_title("Despesas do Mês")
+            self.kpi_pending.set_value(format_currency(cur_desp))
+            self.kpi_pending.set_subtitle(f"Competência {month:02d}/{year}")
+
+            self.kpi_total.set_title("Resultado Líquido")
+            self.kpi_total.set_value(format_currency(cur_rec - cur_desp))
+            self.kpi_total.set_subtitle("DRE simplificada (3 meses)")
+
+            self.clarity_panel.load_context(profile_id, month, year, mode)
+            self.stack.setCurrentWidget(self.clarity_panel)
+            return
 
         if rtype == "AI_HEALTH":
             health_data = self.analytics.get_financial_health_summary(

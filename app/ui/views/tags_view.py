@@ -39,7 +39,7 @@ class TagItemDialog(QDialog):
         self,
         title: str,
         initial_name: str = "",
-        initial_color: str = "#E5603D",
+        initial_color: str = "#5B5BD6",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -119,7 +119,7 @@ class TagItemDialog(QDialog):
             QMessageBox.warning(self, "Campo Obrigatório", "Informe o nome da tag.")
             return
         self.selected_name = raw_name
-        self.selected_color = str(self.cb_color.currentData() or "#E5603D")
+        self.selected_color = str(self.cb_color.currentData() or "#5B5BD6")
         self.accept()
 
 

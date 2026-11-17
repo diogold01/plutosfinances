@@ -9,8 +9,8 @@ from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QPushButton, QWidget
 
 from app.config.app_settings import IMAGES_DIR
+from app.ui.icons import get_line_icon
 
-NEW_SPARKLE_TILE = IMAGES_DIR / "plutos_ai_sparkle_tile_256.png"
 NEW_SPARKLE_ICON = IMAGES_DIR / "plutos_ai_sparkle_256.png"
 GEMINI_ICON_PATH = IMAGES_DIR / "gemini_3d_sparkle.png"
 
@@ -27,20 +27,18 @@ class GeminiButton(QPushButton):
         self.setToolTip("Lançamento Inteligente com IA  ·  Ctrl+K")
         if NEW_SPARKLE_ICON.exists():
             self.setIcon(QIcon(str(NEW_SPARKLE_ICON)))
-        elif NEW_SPARKLE_TILE.exists():
-            self.setIcon(QIcon(str(NEW_SPARKLE_TILE)))
         elif GEMINI_ICON_PATH.exists():
             self.setIcon(QIcon(str(GEMINI_ICON_PATH)))
         else:
-            self.setText("✦")
+            self.setIcon(get_line_icon("sparkle", color="#5B5BD6", size=22))
         self.setFlat(True)
         self.setStyleSheet(
             "QPushButton#GeminiButton { background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 2px; }"
-            "QPushButton#GeminiButton:hover { background: rgba(229, 96, 61, 0.15); border: 1px solid rgba(229, 96, 61, 0.35); }"
+            "QPushButton#GeminiButton:hover { background: rgba(91, 91, 214, 0.14); border: 1px solid rgba(91, 91, 214, 0.35); }"
         )
         self._glow = QGraphicsDropShadowEffect(self)
         self._glow.setOffset(0, 0)
-        self._glow.setColor(QColor(229, 96, 61, 180))
+        self._glow.setColor(QColor(91, 91, 214, 180))
         self._glow.setBlurRadius(0)
         self.setGraphicsEffect(self._glow)
         self._anim = QPropertyAnimation(self._glow, b"blurRadius", self)

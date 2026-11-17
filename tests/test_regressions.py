@@ -183,3 +183,175 @@ def test_regression_issue2_investimentos_cdi_tab_mnemonic_escaped(regression_env
     assert "&&" in found_tab_text or "&" in found_tab_text
     # Garante que não é exibido como mnemônico sublinhado truncado
     assert "Investimentos" in found_tab_text and "CDI" in found_tab_text
+
+
+def test_regression_artha_indigo_icons_and_transacoes_feed(regression_env) -> None:
+    """Regressão Etapas 1-2: Paleta Indigo Artha, ícones sem caixas vazias, statusbar oculta e Transações em Feed."""
+    from app.config.theme_palette import ThemePalette
+    from app.ui.icons import get_line_pixmap
+
+    assert ThemePalette.light().primary == "#5B5BD6"
+    assert ThemePalette.dark().primary == "#6366F1"
+
+    required_icons = (
+        "arrow-up",
+        "arrow-down",
+        "calendar",
+        "trending_up",
+        "pie_chart",
+        "chart-bar",
+        "check_circle",
+        "file_text",
+        "chevron-left",
+        "chevron-right",
+        "filter",
+    )
+    for icon_name in required_icons:
+        pix = get_line_pixmap(icon_name, color="#5B5BD6", size=18)
+        assert not pix.isNull(), f"Ícone '{icon_name}' não pode ser nulo"
+        img = pix.toImage()
+        has_visible_pixel = any(
+            img.pixelColor(x, y).alpha() > 0
+            for x in range(img.width())
+            for y in range(img.height())
+        )
+        assert has_visible_pixel, f"Ícone '{icon_name}' renderizou totalmente transparente (caixa vazia)"
+
+    win, _, _ = regression_env
+    assert win.status_bar.isHidden(), "QStatusBar inferior deve permanecer oculta para não vazar na base"
+
+    win.navigate_to("transacoes")
+    QApplication.processEvents()
+    tx_view: TransacoesView = win.transacoes_view
+    assert tx_view._view_mode == "feed"
+    assert tx_view.installment_drawer.width() >= 400
+
+
+def test_regression_etapa3_standardized_modals(regression_env) -> None:
+    """Regressão Etapa 3: Modais padronizados em 2 colunas (Despesa, Receita, Transferência e Orçamento)."""
+    from datetime import date
+    from PySide6.QtWidgets import QGridLayout
+    from app.ui.views.orcamentos_view import BudgetFormDialog
+    from app.ui.views.transacoes_view import ExpenseDialog, IncomeDialog, TransferDialog
+
+    win, db, prof_id = regression_env
+    today = date(2026, 11, 16)
+
+    exp_dlg = ExpenseDialog(db=db, profile_id=prof_id, default_date=today, card_mode=False)
+    assert exp_dlg.minimumWidth() >= 600
+    assert exp_dlg.cb_conta.isVisibleTo(exp_dlg) is True
+    assert exp_dlg.cb_cartao.isVisibleTo(exp_dlg) is False
+    exp_dlg.rb_cartao.setChecked(True)
+    QApplication.processEvents()
+    assert exp_dlg.cb_cartao.isVisibleTo(exp_dlg) is True
+    assert exp_dlg.cb_conta.isVisibleTo(exp_dlg) is False
+
+    inc_dlg = IncomeDialog(db=db, profile_id=prof_id, default_date=today)
+    assert inc_dlg.minimumWidth() >= 600
+
+    tr_dlg = TransferDialog(db=db, profile_id=prof_id, default_date=today)
+    assert tr_dlg.minimumWidth() >= 560
+    assert len(tr_dlg.findChildren(QGridLayout)) >= 1
+
+    bdg_dlg = BudgetFormDialog(db=db, profile_id=prof_id)
+    assert bdg_dlg.minimumWidth() >= 560
+    assert len(bdg_dlg.findChildren(QGridLayout)) >= 1
+
+
+def test_regression_etapa4_cartoes_no_parcel_overlap_and_clean_header(regression_env) -> None:
+    """Regressão Etapa 4: Coluna Parcela sem texto sobreposto atrás do InstallmentMiniBar e menu Gerenciar."""
+    from datetime import date
+    from app.domain.models import REC_PARCELADA
+    from app.domain.services.credit_card_service import CreditCardService
+    from app.domain.services.transaction_service import TransactionService
+    from app.database.repositories.account_repository import AccountRepository
+
+    win, db, prof_id = regression_env
+    tx = TransactionService(db)
+    acc_repo = AccountRepository(db)
+    accounts = acc_repo.list_accounts(prof_id)
+    acc_id = accounts[0].id if accounts else acc_repo.create_account(
+        descricao="Conta Teste",
+        saldo_inicial=1000.0,
+        profile_id=prof_id,
+    )
+    card_srv = CreditCardService(db, tx)
+    card = card_srv.create_card(
+        profile_id=prof_id,
+        nome="Nubank Teste",
+        limite=3000.0,
+        dia_fecha=2,
+        dia_venc=9,
+        id_conta=acc_id,
+    )
+    _, ctx_month, ctx_year, _ = win.get_active_context()
+    prev_month = 12 if ctx_month == 1 else ctx_month - 1
+    prev_year = ctx_year - 1 if ctx_month == 1 else ctx_year
+    tx.create_expense(
+        descricao="Notebook",
+        valor=1200.0,
+        data_vencimento=date(ctx_year, ctx_month, 9),
+        data_evento=date(prev_year, prev_month, 20),
+        id_cartao=card.id,
+        recorrencia=REC_PARCELADA,
+        num_parcelas=3,
+        profile_id=prof_id,
+    )
+
+    from app.ui.views.cartoes_view import CartoesView
+
+    cview = CartoesView(db, lambda: (prof_id, ctx_month, ctx_year, ""), lambda: None)
+    cview.refresh_data()
+    QApplication.processEvents()
+
+    assert hasattr(cview, "btn_card_actions")
+    assert cview.btn_card_actions.menu() is not None
+    assert cview.tbl_items.rowCount() >= 1
+    assert cview.tbl_items.item(0, 2).text() == "", (
+        "Célula da coluna Parcela deve ter texto vazio quando possui InstallmentMiniBar!"
+    )
+
+
+def test_regression_etapa5_dashboard_card_lists_and_graficos_axes(regression_env) -> None:
+    """Regressão Etapa 5: Dashboard sem QTableWidget com gráfico Resumo Mensal e GraficosView com eixo MM/AAAA."""
+    from PySide6.QtCharts import QCategoryAxis
+    from PySide6.QtCore import Qt
+
+    win, db, prof_id = regression_env
+    win.navigate_to("dashboard")
+    QApplication.processEvents()
+    dash = win.dashboard_view
+    assert len(dash.findChildren(QTableWidget)) == 0, "Dashboard não deve usar QTableWidget rígidas"
+    assert hasattr(dash, "monthly_chart_view")
+    assert dash.monthly_chart_view.chart() is not None
+    assert hasattr(dash, "cat_legend_layout")
+
+    win.navigate_to("graficos")
+    QApplication.processEvents()
+    gview = win.graficos_view
+    gview.refresh_data()
+    h_axes = gview.cv_line.chart().axes(Qt.Orientation.Horizontal)
+    assert len(h_axes) == 1
+    assert isinstance(h_axes[0], QCategoryAxis)
+    assert len(h_axes[0].categoriesLabels()) >= 1
+    assert "/" in h_axes[0].categoriesLabels()[0]
+
+
+def test_regression_etapa6_orcamentos_cards_calendario_grid_and_indigo(regression_env) -> None:
+    """Regressão Etapa 6: Orçamentos com alternador Cards|Tabela, Calendário com grade sutil e ícone sparkles."""
+    from app.ui.icons import get_line_pixmap
+
+    pix = get_line_pixmap("sparkles", color="#5B5BD6", size=18)
+    assert not pix.isNull()
+
+    win, _, _ = regression_env
+    win.navigate_to("orcamentos")
+    QApplication.processEvents()
+    oview = win.orcamentos_view
+    assert oview._view_mode == "cards"
+    assert oview.table.columnCount() == 9
+
+    win.navigate_to("calendario")
+    QApplication.processEvents()
+    cal_v = win.calendario_view
+    assert cal_v.calendar.isGridVisible() is True

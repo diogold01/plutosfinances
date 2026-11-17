@@ -83,6 +83,13 @@ class MainWindow(QMainWindow):
         ("configuracoes", "Configurações"),
     ]
 
+    NAV_GROUPS: List[Tuple[str, List[str]]] = [
+        ("ANALISAR", ["dashboard", "relatorios", "graficos"]),
+        ("ORGANIZAR", ["transacoes", "cartoes", "orcamentos", "calendario"]),
+        ("PLANEJAR", ["objetivos"]),
+        ("CADASTROS", ["contas", "categorias", "tags", "configuracoes"]),
+    ]
+
     NAV_ICONS: Dict[str, str] = {
         "dashboard": "home",
         "contas": "bank",
@@ -134,6 +141,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(logo_path)))
 
         self._nav_buttons: Dict[str, QPushButton] = {}
+        self._nav_section_labels: List[QLabel] = []
         self._views: Dict[str, QWidget] = {}
         self.current_nav_key: str = "dashboard"
 
@@ -218,16 +226,24 @@ class MainWindow(QMainWindow):
         nav_v.setContentsMargins(0, 0, 0, 0)
         nav_v.setSpacing(2)
 
-        for key, label in self.NAV_ITEMS:
-            icon_name = self.NAV_ICONS.get(key, "plus")
-            btn = QPushButton(f"  {label}")
-            btn.setObjectName("NavButton")
-            btn.setIcon(get_line_icon(icon_name, color=pal.text_secondary, size=18))
-            btn.setIconSize(QSize(18, 18))
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _checked=False, k=key: self.navigate_to(k))
-            nav_v.addWidget(btn)
-            self._nav_buttons[key] = btn
+        nav_labels = dict(self.NAV_ITEMS)
+        for group_title, keys in self.NAV_GROUPS:
+            lbl_sec = QLabel(group_title)
+            lbl_sec.setObjectName("NavSectionHeader")
+            nav_v.addWidget(lbl_sec)
+            self._nav_section_labels.append(lbl_sec)
+
+            for key in keys:
+                label = nav_labels[key]
+                icon_name = self.NAV_ICONS.get(key, "plus")
+                btn = QPushButton(f"  {label}")
+                btn.setObjectName("NavButton")
+                btn.setIcon(get_line_icon(icon_name, color=pal.text_secondary, size=18))
+                btn.setIconSize(QSize(18, 18))
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _checked=False, k=key: self.navigate_to(k))
+                nav_v.addWidget(btn)
+                self._nav_buttons[key] = btn
 
         nav_v.addStretch()
         nav_scroll.setWidget(nav_container)
@@ -393,8 +409,9 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         content_v.addWidget(self.stack, stretch=1)
 
-        # Barra de Status inferior
+        # Barra de Status inferior (mantida oculta para evitar vazamento visual na base)
         self.status_bar = QStatusBar()
+        self.status_bar.hide()
         self.setStatusBar(self.status_bar)
 
         main_h.addLayout(content_v, stretch=1)
@@ -692,6 +709,8 @@ class MainWindow(QMainWindow):
             s_lay.setContentsMargins(6 if collapsed else 12, 16, 6 if collapsed else 12, 12)
         if hasattr(self, "logo_h"):
             self.logo_h.setContentsMargins(0 if collapsed else 4, 0, 0 if collapsed else 4, 12)
+        for lbl_sec in self._nav_section_labels:
+            lbl_sec.setVisible(not collapsed)
         for key, label in self.NAV_ITEMS:
             btn = self._nav_buttons[key]
             btn.setText("" if collapsed else f"  {label}")

@@ -4,19 +4,25 @@ from __future__ import annotations
 
 from typing import Callable, Optional, Tuple
 
-from PySide6.QtCharts import QChart, QChartView, QPieSeries
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCharts import (
+    QBarCategoryAxis,
+    QBarSeries,
+    QBarSet,
+    QChart,
+    QChartView,
+    QPieSeries,
+    QValueAxis,
+)
+from PySide6.QtCore import QMargins, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
+    QProgressBar,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +35,7 @@ from app.config.theme_palette import (
 )
 from app.database.connection_manager import ConnectionManager
 from app.database.repositories.account_repository import AccountRepository
-from app.domain.models import KIND_DESPESA
+from app.domain.models import KIND_DESPESA, KIND_TRANSFERENCIA
 from app.domain.services.analytics_service import AnalyticsService
 from app.domain.services.budget_service import BudgetService
 from app.domain.services.credit_card_service import (
@@ -42,8 +48,8 @@ from app.ui.bank_icons import (
     get_bank_icon,
     get_card_brand_icon,
 )
-from app.ui.components import Badge
-from app.ui.icons import get_line_icon
+from app.ui.components import Badge, KpiCard
+from app.ui.icons import get_line_icon, get_line_pixmap
 from app.ui.style_manager import format_currency, format_date_br
 
 
@@ -101,20 +107,20 @@ class DashboardView(QWidget):
         header.addWidget(self.btn_go_tx)
         root.addLayout(header)
 
-        # 4 KPI Cards Superiores
+        # 4 KPI Cards Superiores com micro-ícones e tint semântico
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(12)
         self.k_saldo, self.lbl_k_saldo, self.lbl_k_saldo_sub = self._make_kpi(
-            "Saldo em Contas", PRIMARY_BLUE
+            "Saldo em Contas", PRIMARY_BLUE, icon_name="wallet", tint="info"
         )
         self.k_rec, self.lbl_k_rec, self.lbl_k_rec_sub = self._make_kpi(
-            "Receitas do Mês", INCOME_GREEN
+            "Receitas do Mês", INCOME_GREEN, icon_name="arrow-up", tint="positive"
         )
         self.k_desp, self.lbl_k_desp, self.lbl_k_desp_sub = self._make_kpi(
-            "Despesas do Mês", EXPENSE_RED
+            "Despesas do Mês", EXPENSE_RED, icon_name="arrow-down", tint="negative"
         )
         self.k_cc, self.lbl_k_cc, self.lbl_k_cc_sub = self._make_kpi(
-            "Faturas de Cartão", WARNING_ORANGE
+            "Faturas de Cartão", WARNING_ORANGE, icon_name="card", tint="warning"
         )
         kpi_row.addWidget(self.k_saldo, 1)
         kpi_row.addWidget(self.k_rec, 1)
@@ -122,11 +128,67 @@ class DashboardView(QWidget):
         kpi_row.addWidget(self.k_cc, 1)
         root.addLayout(kpi_row)
 
-        # Grid 2x2 de Cards
+        # Banner de alerta para lançamentos sem categoria
+        self.uncat_banner = QFrame()
+        self.uncat_banner.setObjectName("UncatBanner")
+        ub_lay = QHBoxLayout(self.uncat_banner)
+        ub_lay.setContentsMargins(14, 9, 14, 9)
+        ub_lay.setSpacing(10)
+        lbl_ub_ico = QLabel()
+        lbl_ub_ico.setStyleSheet("background: transparent; border: none;")
+        lbl_ub_ico.setPixmap(get_line_pixmap("tag", color=WARNING_ORANGE, size=15))
+        self.lbl_uncat_text = QLabel("")
+        self.lbl_uncat_text.setStyleSheet("background: transparent; border: none; font-size: 12px; font-weight: 500;")
+        self.lbl_uncat_text.setWordWrap(True)
+        self.btn_categorize = QPushButton("Categorizar")
+        self.btn_categorize.setObjectName("SecondaryButton")
+        self.btn_categorize.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_categorize.clicked.connect(lambda: self.navigate_to("transacoes"))
+        ub_lay.addWidget(lbl_ub_ico)
+        ub_lay.addWidget(self.lbl_uncat_text, 1)
+        ub_lay.addWidget(self.btn_categorize)
+        self.uncat_banner.setVisible(False)
+        root.addWidget(self.uncat_banner)
+
+        # Banner de insight rápido do período
+        self.insight_banner = QFrame()
+        self.insight_banner.setObjectName("InsightBanner")
+        ib_lay = QHBoxLayout(self.insight_banner)
+        ib_lay.setContentsMargins(14, 9, 14, 9)
+        ib_lay.setSpacing(10)
+        lbl_ib_ico = QLabel()
+        lbl_ib_ico.setStyleSheet("background: transparent; border: none;")
+        lbl_ib_ico.setPixmap(get_line_pixmap("sparkle", color="#4F46E5", size=15))
+        self.lbl_insight_text = QLabel("")
+        self.lbl_insight_text.setStyleSheet("background: transparent; border: none; font-size: 12px; font-weight: 500;")
+        self.lbl_insight_text.setWordWrap(True)
+        self.btn_go_ai_diag = QPushButton("Diagnóstico IA")
+        self.btn_go_ai_diag.setObjectName("SecondaryButton")
+        self.btn_go_ai_diag.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_go_ai_diag.clicked.connect(lambda: self.navigate_to("relatorios"))
+        ib_lay.addWidget(lbl_ib_ico)
+        ib_lay.addWidget(self.lbl_insight_text, 1)
+        ib_lay.addWidget(self.btn_go_ai_diag)
+        root.addWidget(self.insight_banner)
+
+        # Área com rolagem suave para os painéis do Dashboard
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        body_host = QWidget()
+        body_host.setStyleSheet("background: transparent;")
+        body_lay = QVBoxLayout(body_host)
+        body_lay.setContentsMargins(0, 0, 4, 4)
+        body_lay.setSpacing(14)
+
+        # Grid 2 colunas de painéis limpos (sem grade de planilha)
         grid = QGridLayout()
         grid.setSpacing(14)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
 
-        # Card 1: Minhas Contas
+        # Painel 1 (0, 0): Contas bancárias em lista limpa
         c_acc = QFrame()
         c_acc.setObjectName("CardSurface")
         acc_lay = QVBoxLayout(c_acc)
@@ -144,23 +206,15 @@ class DashboardView(QWidget):
         acc_hdr.addWidget(btn_all_acc)
         acc_lay.addLayout(acc_hdr)
 
-        self.tbl_acc = QTableWidget(0, 3)
-        self.tbl_acc.setHorizontalHeaderLabels(
-            ["Conta", "Saldo Atual", "Previsto"]
-        )
-        self.tbl_acc.setShowGrid(False)
-        self.tbl_acc.verticalHeader().setVisible(False)
-        self.tbl_acc.verticalHeader().setDefaultSectionSize(40)
-        ah = self.tbl_acc.horizontalHeader()
-        ah.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        ah.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.tbl_acc.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tbl_acc.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        acc_lay.addWidget(self.tbl_acc, stretch=1)
+        self.acc_list_widget = QWidget()
+        self.acc_list_layout = QVBoxLayout(self.acc_list_widget)
+        self.acc_list_layout.setContentsMargins(0, 2, 0, 2)
+        self.acc_list_layout.setSpacing(0)
+        acc_lay.addWidget(self.acc_list_widget, stretch=1)
+        c_acc.setMinimumHeight(250)
         grid.addWidget(c_acc, 0, 0)
 
-        # Card 2: Despesas por Categoria (Rosca QtCharts)
+        # Painel 2 (0, 1): Gastos por categoria (Donut + legenda tabular com %)
         c_pie = QFrame()
         c_pie.setObjectName("CardSurface")
         pie_lay = QVBoxLayout(c_pie)
@@ -178,13 +232,49 @@ class DashboardView(QWidget):
         pie_hdr.addWidget(btn_all_charts)
         pie_lay.addLayout(pie_hdr)
 
+        pie_body = QHBoxLayout()
+        pie_body.setSpacing(12)
         self.chart_view = QChartView()
         self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.chart_view.setStyleSheet("background: transparent;")
-        pie_lay.addWidget(self.chart_view, stretch=1)
+        self.chart_view.setMinimumSize(180, 180)
+        pie_body.addWidget(self.chart_view, 5)
+
+        self.cat_legend_widget = QWidget()
+        self.cat_legend_layout = QVBoxLayout(self.cat_legend_widget)
+        self.cat_legend_layout.setContentsMargins(0, 8, 4, 8)
+        self.cat_legend_layout.setSpacing(8)
+        pie_body.addWidget(self.cat_legend_widget, 6)
+        pie_lay.addLayout(pie_body, stretch=1)
+        c_pie.setMinimumHeight(250)
         grid.addWidget(c_pie, 0, 1)
 
-        # Card 3: Faturas de Cartões de Crédito
+        # Painel 3 (1, 0): Resumo mensal (Gráfico de barras vertical 6 meses)
+        c_monthly = QFrame()
+        c_monthly.setObjectName("CardSurface")
+        mon_lay = QVBoxLayout(c_monthly)
+        mon_lay.setContentsMargins(18, 16, 18, 16)
+        mon_lay.setSpacing(8)
+        mon_hdr = QHBoxLayout()
+        lbl_mon_t = QLabel("Resumo mensal")
+        lbl_mon_t.setStyleSheet("font-size: 14px; font-weight: 600;")
+        lbl_mon_sub = QLabel("Últimos 6 meses")
+        lbl_mon_sub.setObjectName("MutedText")
+        lbl_mon_sub.setStyleSheet("font-size: 12px;")
+        mon_hdr.addWidget(lbl_mon_t)
+        mon_hdr.addStretch()
+        mon_hdr.addWidget(lbl_mon_sub)
+        mon_lay.addLayout(mon_hdr)
+
+        self.monthly_chart_view = QChartView()
+        self.monthly_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self.monthly_chart_view.setStyleSheet("background: transparent;")
+        self.monthly_chart_view.setMinimumHeight(200)
+        mon_lay.addWidget(self.monthly_chart_view, stretch=1)
+        c_monthly.setMinimumHeight(250)
+        grid.addWidget(c_monthly, 1, 0)
+
+        # Painel 4 (1, 1): Faturas de cartões em lista limpa
         c_cards = QFrame()
         c_cards.setObjectName("CardSurface")
         cc_lay = QVBoxLayout(c_cards)
@@ -202,26 +292,15 @@ class DashboardView(QWidget):
         cc_hdr.addWidget(btn_all_cc)
         cc_lay.addLayout(cc_hdr)
 
-        self.tbl_cards = QTableWidget(0, 4)
-        self.tbl_cards.setHorizontalHeaderLabels(
-            ["Cartão", "Vencimento", "Situação", "Valor"]
-        )
-        self.tbl_cards.setShowGrid(False)
-        self.tbl_cards.verticalHeader().setVisible(False)
-        self.tbl_cards.verticalHeader().setDefaultSectionSize(40)
-        ch = self.tbl_cards.horizontalHeader()
-        ch.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        ch.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        ch.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        self.tbl_cards.setColumnWidth(2, 120)
-        ch.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.tbl_cards.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tbl_cards.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.tbl_cards.setIconSize(QSize(22, 22))
-        cc_lay.addWidget(self.tbl_cards, stretch=1)
-        grid.addWidget(c_cards, 1, 0)
+        self.cards_list_widget = QWidget()
+        self.cards_list_layout = QVBoxLayout(self.cards_list_widget)
+        self.cards_list_layout.setContentsMargins(0, 2, 0, 2)
+        self.cards_list_layout.setSpacing(0)
+        cc_lay.addWidget(self.cards_list_widget, stretch=1)
+        c_cards.setMinimumHeight(250)
+        grid.addWidget(c_cards, 1, 1)
 
-        # Card 4: Orçamentos do Mês
+        # Painel 5 (2, 0, span 2): Orçamentos do mês em cards de progresso
         c_bud = QFrame()
         c_bud.setObjectName("CardSurface")
         bud_lay = QVBoxLayout(c_bud)
@@ -239,50 +318,48 @@ class DashboardView(QWidget):
         bud_hdr.addWidget(btn_all_bud)
         bud_lay.addLayout(bud_hdr)
 
-        self.tbl_budgets = QTableWidget(0, 4)
-        self.tbl_budgets.setHorizontalHeaderLabels(
-            ["Alvo", "Meta", "Utilizado", "Situação"]
-        )
-        self.tbl_budgets.setShowGrid(False)
-        self.tbl_budgets.verticalHeader().setVisible(False)
-        self.tbl_budgets.verticalHeader().setDefaultSectionSize(40)
-        bh = self.tbl_budgets.horizontalHeader()
-        bh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        bh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        bh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        bh.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        self.tbl_budgets.setColumnWidth(3, 130)
-        self.tbl_budgets.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tbl_budgets.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        bud_lay.addWidget(self.tbl_budgets, stretch=1)
-        grid.addWidget(c_bud, 1, 1)
+        self.budgets_list_widget = QWidget()
+        self.budgets_list_layout = QVBoxLayout(self.budgets_list_widget)
+        self.budgets_list_layout.setContentsMargins(0, 2, 0, 2)
+        self.budgets_list_layout.setSpacing(8)
+        bud_lay.addWidget(self.budgets_list_widget)
+        grid.addWidget(c_bud, 2, 0, 1, 2)
 
-        root.addLayout(grid, stretch=1)
+        body_lay.addLayout(grid)
+        body_lay.addStretch()
+        scroll.setWidget(body_host)
+        root.addWidget(scroll, stretch=1)
 
     def _make_kpi(
-        self, title: str, accent_hex: str
-    ) -> Tuple[QFrame, QLabel, QLabel]:
-        card = QFrame()
-        card.setObjectName("KpiCard")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(4)
-        lbl_t = QLabel(title.upper())
-        lbl_t.setObjectName("MutedText")
-        lbl_t.setStyleSheet("font-weight: 600; font-size: 11px; letter-spacing: 0.5px;")
-        lbl_v = QLabel("R$ 0,00")
-        f = QFont()
-        f.setPointSize(16)
-        f.setBold(True)
-        lbl_v.setFont(f)
-        lbl_v.setStyleSheet(f"color: {accent_hex};")
-        lbl_s = QLabel("")
-        lbl_s.setObjectName("MutedText")
-        lbl_s.setStyleSheet("font-size: 11px;")
-        lay.addWidget(lbl_t)
-        lay.addWidget(lbl_v)
-        lay.addWidget(lbl_s)
-        return card, lbl_v, lbl_s
+        self,
+        title: str,
+        accent_hex: str,
+        *,
+        icon_name: Optional[str] = None,
+        tint: Optional[str] = None,
+    ) -> Tuple[KpiCard, QLabel, QLabel]:
+        card = KpiCard(
+            title=title.upper(),
+            value="R$ 0,00",
+            variant="neutral",
+            subtitle="",
+            icon_name=icon_name,
+            accent_color=accent_hex,
+            tint=tint,
+        )
+        card.lbl_value.setStyleSheet(f"color: {accent_hex}; font-size: 22px; font-weight: 700;")
+        card.lbl_subtitle.setStyleSheet("font-size: 11px;")
+        return card, card.lbl_value, card.lbl_subtitle
+
+    @staticmethod
+    def _clear_layout(layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            elif item.layout() is not None:
+                DashboardView._clear_layout(item.layout())  # type: ignore[arg-type]
 
     def refresh_data(self) -> None:
         profile_id, month, year, _ = self.get_context()
@@ -290,10 +367,7 @@ class DashboardView(QWidget):
         from app.config.theme_palette import ThemePalette
         pal = ThemePalette.for_mode(self.db.settings.theme_mode)
 
-        f_bold = QFont()
-        f_bold.setBold(True)
-
-        # 1. Contas
+        # 1. Contas bancárias em lista limpa (sem grade de tabela)
         accounts = [
             a
             for a in self.account_repo.list_accounts_with_balances(
@@ -309,23 +383,53 @@ class DashboardView(QWidget):
             f"Previsto: {format_currency(totals_acc['saldo_previsto'])}"
         )
 
-        self.tbl_acc.setRowCount(0)
-        for idx, acc in enumerate(accounts):
-            self.tbl_acc.insertRow(idx)
-            it_n = QTableWidgetItem(get_bank_icon(acc.image_key, size=22), acc.descricao)
-            self.tbl_acc.setItem(idx, 0, it_n)
-            it_cur = QTableWidgetItem(format_currency(acc.saldo_atual))
-            it_cur.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-            it_cur.setFont(f_bold)
-            self.tbl_acc.setItem(idx, 1, it_cur)
-            it_prev = QTableWidgetItem(format_currency(acc.saldo_previsto))
-            it_prev.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-            it_prev.setForeground(QColor("#7B8190"))
-            self.tbl_acc.setItem(idx, 2, it_prev)
+        self._clear_layout(self.acc_list_layout)
+        if not accounts:
+            lbl_empty_acc = QLabel("Nenhuma conta configurada para o resumo.")
+            lbl_empty_acc.setObjectName("MutedText")
+            lbl_empty_acc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.acc_list_layout.addWidget(lbl_empty_acc)
+        else:
+            for idx, acc in enumerate(accounts[:6]):
+                row_f = QFrame()
+                row_f.setStyleSheet(
+                    f"QFrame {{ background: transparent; border: none; "
+                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < min(len(accounts), 6) - 1 else ''} }}"
+                )
+                rh = QHBoxLayout(row_f)
+                rh.setContentsMargins(2, 8, 2, 8)
+                rh.setSpacing(10)
+
+                ico_lbl = QLabel()
+                ico_lbl.setFixedSize(24, 24)
+                ico_lbl.setPixmap(get_bank_icon(acc.image_key, size=22).pixmap(22, 22))
+                rh.addWidget(ico_lbl)
+
+                name_lbl = QLabel(acc.descricao)
+                name_lbl.setStyleSheet("font-size: 13px; font-weight: 500;")
+                rh.addWidget(name_lbl, 1)
+
+                val_col = QVBoxLayout()
+                val_col.setSpacing(1)
+                val_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                cur_lbl = QLabel(format_currency(acc.saldo_atual))
+                cur_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+                cur_lbl.setStyleSheet("font-size: 13px; font-weight: 700;")
+                prev_lbl = QLabel(f"Prev: {format_currency(acc.saldo_previsto)}")
+                prev_lbl.setObjectName("MutedText")
+                prev_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+                prev_lbl.setStyleSheet("font-size: 11px;")
+                val_col.addWidget(cur_lbl)
+                val_col.addWidget(prev_lbl)
+                rh.addLayout(val_col)
+
+                self.acc_list_layout.addWidget(row_f)
+            if len(accounts) > 6:
+                more_lbl = QLabel(f"+ {len(accounts) - 6} conta(s) — clique em Ver contas")
+                more_lbl.setObjectName("MutedText")
+                more_lbl.setStyleSheet("font-size: 11px; padding-top: 6px;")
+                self.acc_list_layout.addWidget(more_lbl)
+            self.acc_list_layout.addStretch()
 
         # 2. Transações do mês
         occs = self.tx_service.list_occurrences(
@@ -341,33 +445,143 @@ class DashboardView(QWidget):
             f"Pago: {format_currency(tx_sum['despesas_pagas'])}"
         )
 
-        # 3. Gráfico de Rosca de Despesas por Categoria
+        # 3. Gráfico de Rosca de Despesas por Categoria + Legenda Tabular Alinhada (%)
         exp_cats = self.analytics.category_breakdown(
             year, month, kind=KIND_DESPESA, profile_id=profile_id, mode=mode
         )
         chart = QChart()
         chart.setBackgroundBrush(QColor(pal.surface_card))
         chart.setBackgroundRoundness(12.0)
+        chart.setMargins(QMargins(4, 4, 4, 4))
+        chart.legend().setVisible(False)
         series = QPieSeries()
-        series.setHoleSize(0.52)
+        series.setHoleSize(0.58)
         if not exp_cats:
-            sl = series.append("Sem despesas no mês", 1.0)
-            sl.setColor(QColor(pal.text_muted))
+            sl = series.append("Sem despesas", 1.0)
+            sl.setColor(QColor(pal.border_subtle))
             sl.setBorderColor(QColor(pal.surface_card))
         else:
             for r in exp_cats[:6]:
-                sl = series.append(
-                    f"{r.categoria_nome} ({r.percentual:.0f}%)", max(0.01, abs(r.total))
-                )
+                sl = series.append(r.categoria_nome, max(0.01, abs(r.total)))
                 sl.setColor(QColor(r.cor_hex))
                 sl.setBorderColor(QColor(pal.surface_card))
                 sl.setBorderWidth(2)
         chart.addSeries(series)
-        chart.legend().setAlignment(Qt.AlignmentFlag.AlignRight)
-        chart.legend().setLabelColor(QColor(pal.text_secondary))
         self.chart_view.setChart(chart)
 
-        # 4. Cartões de Crédito
+        self._clear_layout(self.cat_legend_layout)
+        if not exp_cats:
+            lbl_no_cat = QLabel("Sem despesas categorizadas no mês.")
+            lbl_no_cat.setObjectName("MutedText")
+            lbl_no_cat.setWordWrap(True)
+            self.cat_legend_layout.addWidget(lbl_no_cat)
+            self.cat_legend_layout.addStretch()
+        else:
+            for r in exp_cats[:6]:
+                row_l = QHBoxLayout()
+                row_l.setSpacing(8)
+                dot = QLabel()
+                dot.setFixedSize(10, 10)
+                dot.setStyleSheet(f"background-color: {r.cor_hex}; border-radius: 5px;")
+                row_l.addWidget(dot)
+
+                lbl_cn = QLabel(r.categoria_nome)
+                lbl_cn.setStyleSheet("font-size: 12px; font-weight: 500;")
+                row_l.addWidget(lbl_cn, 1)
+
+                lbl_cv = QLabel(format_currency(abs(r.total)))
+                lbl_cv.setObjectName("MutedText")
+                lbl_cv.setStyleSheet("font-size: 11px;")
+                row_l.addWidget(lbl_cv)
+
+                lbl_cp = QLabel(f"{r.percentual:.0f}%")
+                lbl_cp.setMinimumWidth(34)
+                lbl_cp.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                lbl_cp.setStyleSheet("font-size: 12px; font-weight: 700;")
+                row_l.addWidget(lbl_cp)
+
+                self.cat_legend_layout.addLayout(row_l)
+            self.cat_legend_layout.addStretch()
+
+        # 3.1 Gráfico de Barras Vertical: Resumo Mensal (6 meses)
+        evo = self.analytics.monthly_evolution(
+            year, month, months_count=6, profile_id=profile_id, mode=mode
+        )
+        m_chart = QChart()
+        m_chart.setBackgroundBrush(QColor(pal.surface_card))
+        m_chart.setBackgroundRoundness(12.0)
+        m_chart.setMargins(QMargins(4, 4, 4, 4))
+
+        set_rec = QBarSet("Receitas")
+        set_rec.setColor(QColor(INCOME_GREEN))
+        set_desp = QBarSet("Despesas")
+        set_desp.setColor(QColor(EXPENSE_RED))
+        m_cats = []
+        max_mv = 100.0
+        for p in evo:
+            m_cats.append(p.label)
+            set_rec.append(max(0.0, p.receitas))
+            set_desp.append(max(0.0, p.despesas))
+            max_mv = max(max_mv, p.receitas, p.despesas)
+
+        b_series = QBarSeries()
+        b_series.append(set_rec)
+        b_series.append(set_desp)
+        m_chart.addSeries(b_series)
+
+        ax_x = QBarCategoryAxis()
+        ax_x.append(m_cats)
+        ax_x.setLabelsColor(QColor(pal.text_secondary))
+        ax_x.setGridLineVisible(False)
+        m_chart.addAxis(ax_x, Qt.AlignmentFlag.AlignBottom)
+        b_series.attachAxis(ax_x)
+
+        ax_y = QValueAxis()
+        ax_y.setRange(0.0, max_mv * 1.15)
+        ax_y.setLabelsColor(QColor(pal.text_secondary))
+        ax_y.setGridLineColor(QColor(pal.border_subtle))
+        m_chart.addAxis(ax_y, Qt.AlignmentFlag.AlignLeft)
+        b_series.attachAxis(ax_y)
+
+        m_chart.legend().setAlignment(Qt.AlignmentFlag.AlignTop)
+        m_chart.legend().setLabelColor(QColor(pal.text_secondary))
+        self.monthly_chart_view.setChart(m_chart)
+
+        # 3.2 Banners de Itens Sem Categoria & Insight Rápido
+        uncat = [
+            o
+            for o in occs
+            if o.kind != KIND_TRANSFERENCIA
+            and (
+                not o.id_categoria
+                or str(o.id_categoria).strip() in ("", "-1")
+                or (o.categoria_nome or "").strip().lower() == "sem categoria"
+            )
+        ]
+        if uncat:
+            uncat_sum = sum(o.total for o in uncat)
+            self.lbl_uncat_text.setText(
+                f"Sem categoria: {format_currency(uncat_sum)} em {len(uncat)} lançamento(s), já nos totais acima."
+            )
+            self.uncat_banner.setVisible(True)
+        else:
+            self.uncat_banner.setVisible(False)
+
+        res_val = tx_sum["resultado"]
+        res_msg = (
+            f"Resultado positivo de {format_currency(res_val)} no período."
+            if res_val >= 0
+            else f"Déficit atual de {format_currency(abs(res_val))} no período."
+        )
+        if exp_cats:
+            top_cat = exp_cats[0]
+            self.lbl_insight_text.setText(
+                f"Categoria que mais consome: {top_cat.categoria_nome} ({top_cat.percentual:.0f}%) · {res_msg}"
+            )
+        else:
+            self.lbl_insight_text.setText(f"Sem despesas categorizadas ainda · {res_msg}")
+
+        # 4. Cartões de Crédito em lista limpa (sem tabela)
         invoices = self.card_service.list_cards_with_invoices(
             year, month, profile_id=profile_id
         )
@@ -376,35 +590,53 @@ class DashboardView(QWidget):
         self.lbl_k_cc.setText(format_currency(tot_faturas))
         self.lbl_k_cc_sub.setText(f"Disponível: {format_currency(disp_total)}")
 
-        self.tbl_cards.setRowCount(0)
-        for idx, inv in enumerate(invoices):
-            self.tbl_cards.insertRow(idx)
-            icon = get_card_brand_icon(
-                brand_icon_filename(inv.card.brand_key), size=20
-            )
-            self.tbl_cards.setItem(idx, 0, QTableWidgetItem(icon, inv.card.nome))
-            self.tbl_cards.setItem(
-                idx,
-                1,
-                QTableWidgetItem(format_date_br(inv.data_vencimento.isoformat())),
-            )
-            variant = "success" if inv.paga else ("danger" if inv.status == "Vencida" else "warning")
-            badge = Badge(inv.status, variant=variant)
-            b_wrap = QWidget()
-            b_lay = QHBoxLayout(b_wrap)
-            b_lay.setContentsMargins(0, 0, 0, 0)
-            b_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            b_lay.addWidget(badge)
-            self.tbl_cards.setCellWidget(idx, 2, b_wrap)
+        self._clear_layout(self.cards_list_layout)
+        if not invoices:
+            lbl_empty_cc = QLabel("Nenhum cartão de crédito cadastrado.")
+            lbl_empty_cc.setObjectName("MutedText")
+            lbl_empty_cc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.cards_list_layout.addWidget(lbl_empty_cc)
+        else:
+            for idx, inv in enumerate(invoices[:5]):
+                row_f = QFrame()
+                row_f.setStyleSheet(
+                    f"QFrame {{ background: transparent; border: none; "
+                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < min(len(invoices), 5) - 1 else ''} }}"
+                )
+                rh = QHBoxLayout(row_f)
+                rh.setContentsMargins(2, 9, 2, 9)
+                rh.setSpacing(10)
 
-            it_v = QTableWidgetItem(format_currency(inv.total))
-            it_v.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-            it_v.setFont(f_bold)
-            self.tbl_cards.setItem(idx, 3, it_v)
+                ico_lbl = QLabel()
+                ico_lbl.setFixedSize(22, 22)
+                icon = get_card_brand_icon(brand_icon_filename(inv.card.brand_key), size=20)
+                ico_lbl.setPixmap(icon.pixmap(20, 20))
+                rh.addWidget(ico_lbl)
 
-        # 5. Orçamentos
+                name_col = QVBoxLayout()
+                name_col.setSpacing(1)
+                c_name = QLabel(inv.card.nome)
+                c_name.setStyleSheet("font-size: 13px; font-weight: 600;")
+                c_due = QLabel(f"Vence {format_date_br(inv.data_vencimento.isoformat())}")
+                c_due.setObjectName("MutedText")
+                c_due.setStyleSheet("font-size: 11px;")
+                name_col.addWidget(c_name)
+                name_col.addWidget(c_due)
+                rh.addLayout(name_col, 1)
+
+                variant = "success" if inv.paga else ("danger" if inv.status == "Vencida" else "warning")
+                rh.addWidget(Badge(inv.status, variant=variant))
+
+                v_lbl = QLabel(format_currency(inv.total))
+                v_lbl.setMinimumWidth(90)
+                v_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                v_lbl.setStyleSheet("font-size: 13px; font-weight: 700;")
+                rh.addWidget(v_lbl)
+
+                self.cards_list_layout.addWidget(row_f)
+            self.cards_list_layout.addStretch()
+
+        # 5. Orçamentos do Mês em cards limpos com progresso
         budgets = [
             b
             for b in self.budget_service.list_budgets_progress(
@@ -412,22 +644,40 @@ class DashboardView(QWidget):
             )
             if b.exibir_resumo
         ]
-        self.tbl_budgets.setRowCount(0)
-        for idx, b in enumerate(budgets):
-            self.tbl_budgets.insertRow(idx)
-            self.tbl_budgets.setItem(idx, 0, QTableWidgetItem(b.nome_alvo))
-            self.tbl_budgets.setItem(
-                idx, 1, QTableWidgetItem(format_currency(b.meta_mes))
-            )
-            it_u = QTableWidgetItem(format_currency(b.utilizado))
-            it_u.setFont(f_bold)
-            self.tbl_budgets.setItem(idx, 2, it_u)
+        self._clear_layout(self.budgets_list_layout)
+        if not budgets:
+            lbl_empty_b = QLabel("Nenhum orçamento marcado para exibir na Visão Geral.")
+            lbl_empty_b.setObjectName("MutedText")
+            lbl_empty_b.setStyleSheet("font-size: 12px; padding: 8px 0;")
+            self.budgets_list_layout.addWidget(lbl_empty_b)
+        else:
+            for b in budgets[:6]:
+                row_b = QFrame()
+                row_b.setStyleSheet(
+                    f"QFrame {{ background-color: {pal.app_background}; border: 1px solid {pal.border_subtle}; border-radius: 10px; }}"
+                )
+                rb = QHBoxLayout(row_b)
+                rb.setContentsMargins(12, 10, 12, 10)
+                rb.setSpacing(12)
 
-            b_var = "success" if b.status_label == "Dentro da Meta" else ("danger" if b.status_label == "Estourado" else "warning")
-            badge_b = Badge(b.status_label, variant=b_var)
-            bb_wrap = QWidget()
-            bb_lay = QHBoxLayout(bb_wrap)
-            bb_lay.setContentsMargins(0, 0, 0, 0)
-            bb_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            bb_lay.addWidget(badge_b)
-            self.tbl_budgets.setCellWidget(idx, 3, bb_wrap)
+                b_name = QLabel(b.nome_alvo)
+                b_name.setStyleSheet("border: none; background: transparent; font-size: 13px; font-weight: 600;")
+                b_name.setMinimumWidth(140)
+                rb.addWidget(b_name)
+
+                bar = QProgressBar()
+                bar.setRange(0, 100)
+                pct = min(100, max(0, int((b.utilizado / b.meta_mes) * 100))) if b.meta_mes > 0 else 0
+                bar.setValue(pct)
+                bar.setTextVisible(False)
+                rb.addWidget(bar, 1)
+
+                val_lbl = QLabel(f"{format_currency(b.utilizado)} / {format_currency(b.meta_mes)}")
+                val_lbl.setObjectName("MutedText")
+                val_lbl.setStyleSheet("border: none; background: transparent; font-size: 12px;")
+                rb.addWidget(val_lbl)
+
+                b_var = "success" if b.status_label == "Dentro da Meta" else ("danger" if b.status_label == "Estourado" else "warning")
+                rb.addWidget(Badge(b.status_label, variant=b_var))
+
+                self.budgets_list_layout.addWidget(row_b)

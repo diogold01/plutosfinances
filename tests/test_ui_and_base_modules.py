@@ -223,6 +223,11 @@ def test_native_main_window_navigation_and_views(
     assert settings.theme_mode == "dark"
     win.toggle_sidebar()
     assert settings.sidebar_collapsed is True
+    assert len(win._nav_section_labels) == len(win.NAV_GROUPS)
+    assert all(not lbl.isVisible() for lbl in win._nav_section_labels)
+    win.toggle_sidebar()
+    assert settings.sidebar_collapsed is False
+    assert all(not lbl.isHidden() for lbl in win._nav_section_labels)
 
     win.close()
     db.close()
@@ -231,7 +236,7 @@ def test_native_main_window_navigation_and_views(
 def test_global_components_and_styles(qapp: QApplication) -> None:
     """Valida os componentes visuais globais (Badges, KpiCards, EmptyStates, BaseModal) e folha QSS."""
     from app.config.theme_palette import ThemePalette
-    from app.ui.components import Badge, KpiCard, EmptyStateWidget, BaseModalDialog
+    from app.ui.components import Badge, KpiCard, EmptyStateWidget, BaseModalDialog, SegmentedBar
     from app.ui.style_manager import build_stylesheet
 
     # 1. Badges
@@ -245,9 +250,10 @@ def test_global_components_and_styles(qapp: QApplication) -> None:
     b_danger = Badge("Atrasada", "danger")
     assert b_danger.objectName() == "BadgeDanger"
 
-    # 2. KpiCard
-    kpi = KpiCard("Saldo em Contas", "R$ 3.450,00", "positive")
+    # 2. KpiCard (com tint semântico e KpiIconPill)
+    kpi = KpiCard("Saldo em Contas", "R$ 3.450,00", "positive", icon_name="wallet", tint="positive")
     assert kpi.lbl_title.text() == "Saldo em Contas"
+    assert kpi.property("tint") == "positive"
     assert "3.450,00" in kpi.lbl_value.text()
     kpi.update_value("R$ 2.000,00", "negative")
     assert "2.000,00" in kpi.lbl_value.text()
@@ -263,20 +269,31 @@ def test_global_components_and_styles(qapp: QApplication) -> None:
     )
     assert empty.lbl_title.text() == "Nenhum lançamento"
 
-    # 4. BaseModalDialog
+    # 4. BaseModalDialog & SegmentedBar
     dlg = BaseModalDialog(title="Novo Item", subtitle="Preencha os dados abaixo")
     assert dlg.windowTitle() == "Novo Item"
     assert dlg.btn_confirm.text() == "Confirmar"
     assert dlg.btn_cancel.text() == "Cancelar"
 
-    # 5. Folha de estilo QSS
-    pal = ThemePalette.light()
-    qss = build_stylesheet(pal)
-    assert "QCheckBox" in qss
-    assert "QRadioButton" in qss
-    assert "QDialogButtonBox" in qss
-    assert "QToolTip" in qss
-    assert "QGroupBox" in qss
-    assert "QMessageBox" in qss
-    assert pal.primary in qss
+    seg = SegmentedBar([("all", "Tudo"), ("inc", "Receitas"), ("exp", "Despesas")], active_key="all")
+    emitted: list[str] = []
+    seg.changed.connect(emitted.append)
+    seg.set_active("exp", emit=True)
+    assert seg.current_key == "exp"
+    assert emitted == ["exp"]
+
+    # 5. Folha de estilo QSS (Light e Dark)
+    for mode in ("light", "dark"):
+        pal = ThemePalette.for_mode(mode)
+        qss = build_stylesheet(pal)
+        assert "QCheckBox" in qss
+        assert "QRadioButton" in qss
+        assert "QDialogButtonBox" in qss
+        assert "QToolTip" in qss
+        assert "QGroupBox" in qss
+        assert "QMessageBox" in qss
+        assert "NavSectionHeader" in qss
+        assert "SegmentedControl" in qss
+        assert "KpiIconPill" in qss
+        assert pal.primary in qss
 

@@ -282,6 +282,7 @@ class ObjetivosView(QWidget):
             subtitle="0 objetivos cadastrados",
             icon_name="target",
             accent_color=PRIMARY_BLUE,
+            tint="info",
         )
         self.kpi_acum = KpiCard(
             title="Total Acumulado",
@@ -289,6 +290,7 @@ class ObjetivosView(QWidget):
             subtitle="Saldos iniciais e aportes",
             icon_name="trending_up",
             accent_color=INCOME_GREEN,
+            tint="positive",
         )
         self.kpi_rest = KpiCard(
             title="Valor Restante",
@@ -296,6 +298,7 @@ class ObjetivosView(QWidget):
             subtitle="Falta acumular para a meta",
             icon_name="pie_chart",
             accent_color=EXPENSE_RED,
+            tint="negative",
         )
         kpi_row.addWidget(self.kpi_meta, 1)
         kpi_row.addWidget(self.kpi_acum, 1)
@@ -596,7 +599,7 @@ class ObjetivosView(QWidget):
             saldo_inicial=float(dlg.sp_inicial.value()),
             data_expectativa=date(qd.year(), qd.month(), qd.day()),
             motivacao=dlg.ed_motivacao.text().strip(),
-            color_hex=str(dlg.cb_cor.currentData() or "#E5603D"),
+            color_hex=str(dlg.cb_cor.currentData() or "#5B5BD6"),
             profile_id=profile_id,
         )
         self.on_data_mutated()
@@ -617,7 +620,7 @@ class ObjetivosView(QWidget):
             saldo_inicial=float(dlg.sp_inicial.value()),
             data_expectativa=date(qd.year(), qd.month(), qd.day()),
             motivacao=dlg.ed_motivacao.text().strip(),
-            color_hex=str(dlg.cb_cor.currentData() or "#E5603D"),
+            color_hex=str(dlg.cb_cor.currentData() or "#5B5BD6"),
             realizado=dlg.chk_realizado.isChecked(),
         )
         self.on_data_mutated()

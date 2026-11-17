@@ -1220,6 +1220,37 @@ class TransactionService:
             for r in rows
         ]
 
+    def list_installment_series(self, occ: Occurrence) -> List[dict]:
+        """Lista todas as parcelas de uma compra ou receita parcelada em ordem crescente."""
+        table = _TABLES.get(occ.kind)
+        if not table:
+            return []
+        eff_col = (
+            "status"
+            if occ.kind == KIND_DESPESA
+            else ("efetivado" if occ.kind == KIND_RECEITA else "contabilizada")
+        )
+        rows = self.db.execute_query(
+            f"SELECT id, num_parcela, num_parcelas, data, valor, {eff_col} AS eff_flag "
+            f"FROM {table} "
+            "WHERE COALESCE(NULLIF(id_origem, ''), id) = ? AND data_exclusao IS NULL "
+            "ORDER BY COALESCE(num_parcela, 1), date(data)",
+            (occ.origin_id,),
+        )
+        items: List[dict] = []
+        for idx, r in enumerate(rows, start=1):
+            items.append(
+                {
+                    "id": str(r["id"]),
+                    "num_parcela": int(r["num_parcela"] or idx),
+                    "num_parcelas": int(r["num_parcelas"] or len(rows) or 1),
+                    "data_vencimento": parse_date(r["data"]),
+                    "valor": round(float(r["valor"] or 0.0), 2),
+                    "efetivada": _is_effective_value(occ.kind, r["eff_flag"]),
+                }
+            )
+        return items
+
     def delete_occurrence(self, occ: Occurrence, scope: str = "this") -> None:
         """
         Exclui uma ocorrência conforme o escopo:
