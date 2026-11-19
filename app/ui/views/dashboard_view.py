@@ -197,11 +197,15 @@ class DashboardView(QWidget):
         acc_hdr = QHBoxLayout()
         lbl_acc_t = QLabel("Contas bancárias")
         lbl_acc_t.setStyleSheet("font-size: 14px; font-weight: 600;")
+        self.lbl_acc_count = QLabel("")
+        self.lbl_acc_count.setObjectName("MutedText")
+        self.lbl_acc_count.setStyleSheet("font-size: 11px; padding-left: 4px;")
         btn_all_acc = QPushButton("Ver contas")
         btn_all_acc.setObjectName("SecondaryButton")
         btn_all_acc.setIcon(get_line_icon("bank", size=14))
         btn_all_acc.clicked.connect(lambda: self.navigate_to("contas"))
         acc_hdr.addWidget(lbl_acc_t)
+        acc_hdr.addWidget(self.lbl_acc_count)
         acc_hdr.addStretch()
         acc_hdr.addWidget(btn_all_acc)
         acc_lay.addLayout(acc_hdr)
@@ -209,15 +213,17 @@ class DashboardView(QWidget):
         self.acc_scroll = QScrollArea()
         self.acc_scroll.setWidgetResizable(True)
         self.acc_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.acc_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.acc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.acc_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         self.acc_list_widget = QWidget()
         self.acc_list_widget.setStyleSheet("background: transparent;")
         self.acc_list_layout = QVBoxLayout(self.acc_list_widget)
-        self.acc_list_layout.setContentsMargins(0, 2, 4, 2)
+        self.acc_list_layout.setContentsMargins(0, 2, 0, 2)
         self.acc_list_layout.setSpacing(0)
         self.acc_scroll.setWidget(self.acc_list_widget)
         acc_lay.addWidget(self.acc_scroll, stretch=1)
-        c_acc.setMinimumHeight(310)
+        c_acc.setMinimumHeight(374)
         grid.addWidget(c_acc, 0, 0)
 
         # Painel 2 (0, 1): Gastos por categoria (Donut + legenda tabular com %)
@@ -252,7 +258,7 @@ class DashboardView(QWidget):
         self.cat_legend_layout.setSpacing(8)
         pie_body.addWidget(self.cat_legend_widget, 6)
         pie_lay.addLayout(pie_body, stretch=1)
-        c_pie.setMinimumHeight(310)
+        c_pie.setMinimumHeight(374)
         grid.addWidget(c_pie, 0, 1)
 
         # Painel 3 (1, 0): Resumo mensal (Gráfico de barras vertical 6 meses)
@@ -369,6 +375,8 @@ class DashboardView(QWidget):
             item = layout.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()
+                w.setParent(None)
                 w.deleteLater()
             elif item.layout() is not None:
                 DashboardView._clear_layout(item.layout())  # type: ignore[arg-type]
@@ -396,19 +404,25 @@ class DashboardView(QWidget):
         )
 
         self._clear_layout(self.acc_list_layout)
+        if hasattr(self, "lbl_acc_count"):
+            self.lbl_acc_count.setText(f"· {len(accounts)}" if accounts else "")
         if not accounts:
             lbl_empty_acc = QLabel("Nenhuma conta configurada para o resumo.")
             lbl_empty_acc.setObjectName("MutedText")
             lbl_empty_acc.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.acc_list_layout.addWidget(lbl_empty_acc)
         else:
-            for idx, acc in enumerate(accounts):
+            visible_accounts = accounts[:5]
+            extra_count = max(0, len(accounts) - 5)
+            for idx, acc in enumerate(visible_accounts):
                 row_f = QFrame()
                 row_f.setObjectName("DashListRow")
                 row_f.setMinimumHeight(52)
+                row_f.setMaximumHeight(52)
+                show_sep = idx < len(visible_accounts) - 1 or extra_count > 0
                 row_f.setStyleSheet(
                     f"QFrame#DashListRow {{ background: transparent; border: none; "
-                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < len(accounts) - 1 else ''} }}"
+                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if show_sep else ''} }}"
                 )
                 rh = QHBoxLayout(row_f)
                 rh.setContentsMargins(2, 4, 2, 4)
@@ -439,6 +453,21 @@ class DashboardView(QWidget):
                 rh.addLayout(val_col)
 
                 self.acc_list_layout.addWidget(row_f)
+
+            if extra_count > 0:
+                noun = "conta" if extra_count == 1 else "contas"
+                btn_more = QPushButton(f"+ {extra_count} {noun} · Ver todas →")
+                btn_more.setObjectName("DashMoreAccountsButton")
+                btn_more.setFixedHeight(32)
+                btn_more.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_more.setStyleSheet(
+                    f"QPushButton#DashMoreAccountsButton {{ "
+                    f"background: transparent; border: none; color: {pal.primary}; "
+                    f"font-size: 12px; font-weight: 600; padding: 4px 2px; text-align: center; }}"
+                    f"QPushButton#DashMoreAccountsButton:hover {{ text-decoration: underline; }}"
+                )
+                btn_more.clicked.connect(lambda: self.navigate_to("contas"))
+                self.acc_list_layout.addWidget(btn_more)
             self.acc_list_layout.addStretch()
 
         # 2. Transações do mês

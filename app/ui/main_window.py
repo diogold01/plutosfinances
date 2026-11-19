@@ -6,13 +6,16 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
+    QColor,
     QFont,
     QIcon,
     QKeySequence,
+    QLinearGradient,
+    QPainter,
     QPixmap,
     QResizeEvent,
     QShortcut,
@@ -81,6 +84,41 @@ class _ResponsiveStackedWidget(QStackedWidget):
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(960, 640)
+
+
+class _CircularAvatarButton(QPushButton):
+    """Botão avatar perfeitamente circular via QPainter em qualquer zoom ou DPI."""
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        side = min(self.width(), self.height())
+        x0 = (self.width() - side) / 2.0
+        y0 = (self.height() - side) / 2.0
+        rect = QRectF(x0 + 0.5, y0 + 0.5, max(1.0, side - 1.0), max(1.0, side - 1.0))
+
+        grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        if self.underMouse() or self.isDown():
+            grad.setColorAt(0.0, QColor("#A21CAF"))
+            grad.setColorAt(0.5, QColor("#7E22CE"))
+            grad.setColorAt(1.0, QColor("#4F46E5"))
+        else:
+            grad.setColorAt(0.0, QColor("#C026D3"))
+            grad.setColorAt(0.5, QColor("#9333EA"))
+            grad.setColorAt(1.0, QColor("#6366F1"))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(grad)
+        painter.drawEllipse(rect)
+
+        f = QFont(self.font())
+        f.setPixelSize(max(9, int(round(side * 0.38))))
+        f.setWeight(QFont.Weight.Bold)
+        painter.setFont(f)
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
+        painter.end()
 
 
 class MainWindow(QMainWindow):
@@ -397,7 +435,7 @@ class MainWindow(QMainWindow):
         h_lay.addWidget(self.btn_theme_toggle)
 
         # Avatar Circular do Usuário (único ponto de entrada para Configurações / Minha conta)
-        self.btn_user_avatar = QPushButton("P")
+        self.btn_user_avatar = _CircularAvatarButton("P")
         self.btn_user_avatar.setObjectName("UserAvatarButton")
         self.btn_user_avatar.setFixedSize(34, 34)
         self.btn_user_avatar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -814,23 +852,32 @@ class MainWindow(QMainWindow):
     ) -> float:
         """Aplica o fator de zoom (limitado entre 0.60 e 1.50), ajusta QSS/geometria e persiste."""
         clamped = clamp_ui_zoom(z)
+        prev_zoom = clamp_ui_zoom(getattr(self.db.settings, "ui_zoom_factor", 1.0))
+        prev_auto = bool(getattr(self.db.settings, "ui_zoom_auto", False))
+        zoom_changed = abs(clamped - prev_zoom) >= 0.005
+
         if manual:
             self.db.settings.ui_zoom_auto = False
         self.db.settings.ui_zoom_factor = clamped
-        if save:
+        if save and (zoom_changed or (manual and prev_auto)):
             self.db.settings.save()
 
-        app = QApplication.instance()
-        if isinstance(app, QApplication):
-            apply_app_theme(app, self.db.settings.theme_mode, zoom=clamped)
+        from app.ui.style_manager import get_current_ui_zoom
+
+        if abs(clamped - get_current_ui_zoom()) >= 0.005:
+            app = QApplication.instance()
+            if isinstance(app, QApplication):
+                apply_app_theme(app, self.db.settings.theme_mode, zoom=clamped)
 
         self._apply_zoom_geometry(clamped)
-        self._refresh_charts_after_zoom()
+        if zoom_changed:
+            self._refresh_charts_after_zoom()
 
-        if hasattr(self, "config_hub_view") and hasattr(
-            self.config_hub_view, "preferencias_tab"
-        ):
-            self.config_hub_view.preferencias_tab.refresh_data()
+        if hasattr(self, "config_hub_view"):
+            if self.current_nav_key == "configuracoes":
+                self.config_hub_view.refresh_data()
+            elif hasattr(self.config_hub_view, "preferencias_tab"):
+                self.config_hub_view.preferencias_tab.refresh_data()
         return clamped
 
     def step_ui_zoom(self, delta: float) -> float:
@@ -887,7 +934,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "config_hub_view") and hasattr(
             self.config_hub_view, "nav_card"
         ):
-            self.config_hub_view.nav_card.setFixedWidth(max(180, int(round(264 * z))))
+            nav_w = int(round(264 * z)) if z >= 1.0 else max(228, int(round(264 * z)))
+            self.config_hub_view.nav_card.setFixedWidth(nav_w)
 
         for view_attr in ("transacoes_view", "cartoes_view"):
             vw = getattr(self, view_attr, None)

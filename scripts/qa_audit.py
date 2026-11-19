@@ -190,14 +190,25 @@ def run_qa_audit() -> int:
                     f"🟡 [Risco de Compressão] View '{key}' tem altura estimada de {hint_h}px mas não possui QScrollArea interna."
                 )
 
+            for tbl in view.findChildren(QTableWidget):
+                if tbl.isVisible():
+                    hdr_h = tbl.horizontalHeader().height() if tbl.horizontalHeader().isVisible() else 0
+                    min_ok = max(84, hdr_h + 36)
+                    if tbl.height() < min_ok:
+                        issues_found.append(
+                            f"🔴 [Tabela Esmagada] View '{key}' -> QTableWidget com altura {tbl.height()}px (< {min_ok}px)."
+                        )
+
         print("      ✓ Views auditadas para fluxo de rolagem vertical.")
 
         # ---------------------------------------------------------------------
         # 4. Auditoria de Tabelas e Containers de Dados
         # ---------------------------------------------------------------------
         print("\n[4/5] Auditando tabelas e renderização de dados essenciais...")
-        # Tela de configurações: checa tabela de perfis
+        # Tela de configurações: checa tabela de perfis e backups (seção Segurança)
         win.navigate_to("configuracoes")
+        if hasattr(win, "config_hub_view"):
+            win.config_hub_view.select_section("banco")
         app.processEvents()
         view_cfg = getattr(win, "config_view", getattr(win, "configuracoes_view", None))
         if view_cfg and hasattr(view_cfg, "table_profiles"):
@@ -209,6 +220,12 @@ def run_qa_audit() -> int:
             else:
                 print(
                     f"      ✓ Tabela de perfis renderizada com sucesso ({rows} perfil ativo)."
+                )
+        if view_cfg and hasattr(view_cfg, "table_backups") and view_cfg.table_backups.isVisible():
+            bkp_h = view_cfg.table_backups.height()
+            if bkp_h < 120:
+                issues_found.append(
+                    f"🔴 [Tabela Esmagada] Segurança -> Tabela de backups com altura insuficiente ({bkp_h}px)."
                 )
 
         # ---------------------------------------------------------------------

@@ -669,14 +669,12 @@ def test_regression_round2_etapa1_topbar_and_minha_conta_alignment(regression_en
     assert win.ed_global_search.height() == 34
     assert "▾" in win.cb_profile.currentText()
 
-    # 3. Cards de Perfil preenchem toda a coluna direita (sem trava 680px) e pílula Local tem 20px de altura
+    # 3. Cards de Perfil preenchem toda a coluna direita (sem trava 680px) e menu lateral sem legendas/badges à direita
     hub = win.config_hub_view
     assert hub.perfil_tab.data_card.maximumWidth() > 1000
     assert hub.perfil_tab.family_card.maximumWidth() > 1000
-    sec_badge = hub._nav_rows["banco"].badge_widget
-    assert sec_badge is not None
-    assert sec_badge.objectName() == "AccountNavPill"
-    assert sec_badge.height() == 20
+    for nav_row in hub._nav_rows.values():
+        assert nav_row.badge_widget is None
 
 
 def test_regression_round2_etapa2_dot_timeline_capsules_and_subtotals(regression_env) -> None:
@@ -842,6 +840,14 @@ def test_regression_round2_etapa3_cartoes_single_row_actions_and_modal(regressio
     assert dlg.cb_cor.currentData() == dlg.ARTHAS_CARD_COLORS[4]
     dlg.close()
 
+    # Em janela reduzida (~740px altura), CartoesView rola via QScrollArea sem esmagar R$ total nem sobrepor botões
+    from PySide6.QtWidgets import QScrollArea
+    assert isinstance(cview.page_scroll, QScrollArea)
+    win.resize(1100, 740)
+    QApplication.processEvents()
+    assert cview.lbl_invoice_big_total.height() >= 26
+    assert cview.tbl_items.geometry().bottom() <= cview.btn_edit_purchase.geometry().top()
+
 
 def test_regression_round2_etapa4_responsive_ui_zoom_and_auto_mode(regression_env) -> None:
     """Regressão Etapa 4 (R2): Controle de zoom responsivo (60%-150%), atalhos/persistência, modo Automático e integridade Claro/Escuro."""
@@ -915,4 +921,59 @@ def test_regression_round2_etapa4_responsive_ui_zoom_and_auto_mode(regression_en
     assert db.settings.ui_zoom_factor == 1.00
     assert win.sidebar_frame.width() == 216
     assert pref.lbl_zoom_val.text() == "100%"
+
+
+def test_regression_post_validation_nav_clipping_tables_and_dashboard_accounts(regression_env) -> None:
+    """Regressão Pós-Validação: (1) Menu Minha conta sem cortes no zoom 80% + debounce do slider; (2) table_backups sem esmagamento; (3) 5 contas no Dashboard sem corte ao meio."""
+    from PySide6.QtGui import QFontMetrics
+    from app.database.repositories.account_repository import AccountRepository
+
+    win, db, _ = regression_env
+    prof_id = win.active_profile_id
+    acc_repo = AccountRepository(db)
+    for i in range(7):
+        acc_repo.create_account(
+            descricao=f"Conta Teste {i + 1}",
+            saldo_inicial=100.0 * (i + 1),
+            profile_id=prof_id,
+        )
+
+    # 1. Zoom 80% em Minha conta: fonte escalada, zero corte nos itens e debounce ativo
+    win.db.settings.user_email = "joao.brasileiro.muito.longo@plutos.local"
+    win.navigate_to("configuracoes")
+    win.set_ui_zoom(0.80, manual=True)
+    QApplication.processEvents()
+
+    hub = win.config_hub_view
+    assert hub.nav_card.width() >= 228
+    assert hub.preferencias_tab._zoom_apply_timer.interval() == 140
+    assert "..." in hub.lbl_nav_email.text() or "…" in hub.lbl_nav_email.text()
+    assert win.btn_user_avatar.width() == win.btn_user_avatar.height()
+    assert type(win.btn_user_avatar).__name__ == "_CircularAvatarButton"
+
+    for row in hub._nav_rows.values():
+        assert row.lbl_text.font().pixelSize() == round(13 * 0.80)
+
+    # 2. Segurança: table_backups não é esmagada dentro do QScrollArea
+    hub.select_section("banco")
+    QApplication.processEvents()
+    assert win.config_view.table_backups.minimumHeight() >= 150
+    assert win.config_view.table_backups.height() >= 150
+
+    # 3. Dashboard Visão geral: exibe até 5 contas inteiras sem scroll e link "+ N contas · Ver todas →"
+    from PySide6.QtWidgets import QFrame
+    win.set_ui_zoom(1.0, manual=True)
+    win.navigate_to("dashboard")
+    QApplication.processEvents()
+    dview = win.dashboard_view
+    dash_rows = [
+        f for f in dview.acc_list_widget.findChildren(QFrame)
+        if f.objectName() == "DashListRow"
+    ]
+    assert len(dash_rows) == 5
+    assert dview.acc_scroll.viewport().height() >= 5 * 52 + 32
+    more_btn = dview.acc_list_widget.findChild(QPushButton, "DashMoreAccountsButton")
+    assert more_btn is not None
+    assert "contas · Ver todas" in more_btn.text()
+
 

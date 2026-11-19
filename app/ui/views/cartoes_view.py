@@ -954,7 +954,21 @@ class CartoesView(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.page_scroll = QScrollArea(self)
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.page_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.page_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        scroll_host = QWidget()
+        scroll_host.setObjectName("CartoesScrollHost")
+        scroll_host.setStyleSheet("QWidget#CartoesScrollHost { background: transparent; }")
+
+        root = QVBoxLayout(scroll_host)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(16)
 
@@ -1364,6 +1378,8 @@ class CartoesView(QWidget):
         self.main_stack.addWidget(self.empty_cards_widget)
 
         root.addWidget(self.main_stack, stretch=1)
+        self.page_scroll.setWidget(scroll_host)
+        outer.addWidget(self.page_scroll)
 
         self.installment_drawer = SideDrawer(
             title="Detalhe da Série Parcelada",

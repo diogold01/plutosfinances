@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from PySide6.QtCore import QEvent, QSize, Qt, QUrl, QTimer
-from PySide6.QtGui import QColor, QDesktopServices, QFont
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -41,6 +41,7 @@ from app.services.pluggy_client import PluggyClient, PluggyConfigManager
 from app.ui.ai_worker import AITestWorker
 from app.ui.components import Badge, BaseModalDialog
 from app.ui.icons import get_line_icon, get_line_pixmap
+from app.ui.style_manager import get_current_ui_zoom
 from app.ui.views.configuracoes_view import ConfiguracoesView
 from app.ui.views.ferramentas_view import FerramentasView
 from app.ui.views.open_finance_dialog import OpenFinanceSyncDialog
@@ -941,12 +942,21 @@ class _AccountNavRow(QFrame):
 
     def set_active(self, active: bool, pal: ThemePalette) -> None:
         self.setProperty("active", active)
+        z = get_current_ui_zoom()
+        f_px = max(8, int(round(13 * z)))
+        ico_sz = max(12, int(round(16 * z)))
+        self.setFixedHeight(max(28, int(round(38 * z))))
+        self.lbl_icon.setFixedSize(max(14, int(round(18 * z))), max(14, int(round(18 * z))))
         ico_col = pal.primary if active else pal.text_secondary
         txt_col = pal.primary if active else pal.text_primary
         weight = 700 if active else 500
-        self.lbl_icon.setPixmap(get_line_pixmap(self.icon_name, color=ico_col, size=16))
+        self.lbl_icon.setPixmap(get_line_pixmap(self.icon_name, color=ico_col, size=ico_sz))
+        f_txt = QFont(self.lbl_text.font())
+        f_txt.setPixelSize(f_px)
+        f_txt.setWeight(QFont.Weight.Bold if active else QFont.Weight.Medium)
+        self.lbl_text.setFont(f_txt)
         self.lbl_text.setStyleSheet(
-            f"font-size: 13px; font-weight: {weight}; color: {txt_col}; background: transparent; border: none;"
+            f"font-size: {f_px}px; font-weight: {weight}; color: {txt_col}; background: transparent; border: none;"
         )
         self.style().unpolish(self)
         self.style().polish(self)
@@ -1305,6 +1315,11 @@ class AccountPreferencesTab(QWidget):
         self.on_changed = on_changed
         self.on_open_invest = on_open_invest
         self._syncing_zoom_ui: bool = False
+        self._pending_zoom_pct: Optional[int] = None
+        self._zoom_apply_timer = QTimer(self)
+        self._zoom_apply_timer.setSingleShot(True)
+        self._zoom_apply_timer.setInterval(140)
+        self._zoom_apply_timer.timeout.connect(self._commit_slider_zoom)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1385,6 +1400,7 @@ class AccountPreferencesTab(QWidget):
         self.slider_zoom.setValue(100)
         self.slider_zoom.setCursor(Qt.CursorShape.PointingHandCursor)
         self.slider_zoom.valueChanged.connect(self._on_zoom_slider_changed)
+        self.slider_zoom.sliderReleased.connect(self._commit_slider_zoom)
         slider_row.addWidget(self.slider_zoom, 1)
 
         self.lbl_zoom_val = QLabel("100%")
@@ -1423,13 +1439,29 @@ class AccountPreferencesTab(QWidget):
         self.chk_zoom_auto.blockSignals(True)
         self.chk_zoom_auto.setChecked(False)
         self.chk_zoom_auto.blockSignals(False)
+        self._pending_zoom_pct = snapped
 
+        # Durante arraste ativo com o mouse, aplica apenas ao soltar (ou após debounce curto)
+        # evitando recompilar o QSS inteiro e gravar em disco a cada pixel arrastado.
+        if self.slider_zoom.isSliderDown():
+            self._zoom_apply_timer.start()
+        else:
+            self._zoom_apply_timer.stop()
+            self._commit_slider_zoom()
+
+    def _commit_slider_zoom(self) -> None:
+        self._zoom_apply_timer.stop()
+        pct = self._pending_zoom_pct
+        if pct is None:
+            pct = max(60, min(150, int(round(self.slider_zoom.value() / 5.0) * 5)))
+        self._pending_zoom_pct = None
+        target = clamp_ui_zoom(pct / 100.0)
         win = self.window()
         if hasattr(win, "set_ui_zoom"):
-            win.set_ui_zoom(snapped / 100.0, manual=True)
+            win.set_ui_zoom(target, manual=True)
         else:
             self.db.settings.ui_zoom_auto = False
-            self.db.settings.ui_zoom_factor = clamp_ui_zoom(snapped / 100.0)
+            self.db.settings.ui_zoom_factor = target
             self.db.settings.save()
 
     def _on_zoom_reset_clicked(self) -> None:
@@ -1592,13 +1624,13 @@ class ConfiguracoesHubView(QWidget):
 
         nav_defs = [
             ("perfil", "Perfil", "user", "", None),
-            ("banco", "Segurança", "shield", "Local", "warning"),
-            ("avisos", "Avisos e notificações", "bell", "Ativos", None),
-            ("preferencias", "Preferências", "tool", "Vencimento", None),
+            ("banco", "Segurança", "shield", "", None),
+            ("avisos", "Avisos e notificações", "bell", "", None),
+            ("preferencias", "Preferências", "tool", "", None),
             ("ferramentas", "Privacidade e suporte", "lock", "", None),
-            ("open_finance", "Open Finance", "bank", "Pluggy", None),
-            ("ia", "Inteligência Artificial", "sparkles", "BYOK", None),
-            ("investimentos", "Investimentos e CDI", "trending_up", "10,75%", None),
+            ("open_finance", "Open Finance", "bank", "", None),
+            ("ia", "Inteligência Artificial", "sparkles", "", None),
+            ("investimentos", "Investimentos e CDI", "trending_up", "", None),
         ]
         for key, label, ico, st_txt, pill_var in nav_defs:
             row_w = _AccountNavRow(
@@ -1741,32 +1773,31 @@ class ConfiguracoesHubView(QWidget):
             (self.db.settings.user_email or "").strip()
             or f"{active_prof.name.strip().lower().replace(' ', '.')}@plutos.local"
         )
+        z = get_current_ui_zoom()
+        name_px = max(8, int(round(12 * z)))
+        email_px = max(8, int(round(11 * z)))
+        avatar_sz = max(28, int(round(40 * z)))
+        self.lbl_nav_avatar.setFixedSize(avatar_sz, avatar_sz)
         self.lbl_nav_avatar.setText(self._compute_initials(disp_name))
+        self.lbl_nav_name.setStyleSheet(f"font-size: {name_px}px; font-weight: 700;")
         self.lbl_nav_name.setText(disp_name.upper())
-        self.lbl_nav_email.setText(disp_email)
-        self.btn_nav_logout.setIcon(get_line_icon("logout", color=pal.text_secondary, size=16))
+        self.lbl_nav_email.setStyleSheet(f"font-size: {email_px}px;")
 
-        # Atualiza subtítulos dinâmicos das linhas laterais (como no Arthas)
-        mode_map = {
-            DateReferenceMode.LANCAMENTO.value: "Competência",
-            DateReferenceMode.VENCIMENTO.value: "Vencimento",
-            DateReferenceMode.LANCAMENTO_DISTRIBUIR.value: "Distribuído",
-            DateReferenceMode.EFETIVACAO.value: "Efetivação",
-        }
-        if "preferencias" in self._nav_rows:
-            self._nav_rows["preferencias"].set_status_text(
-                mode_map.get(self.db.settings.date_reference_mode, "Vencimento")
-            )
-        if "avisos" in self._nav_rows:
-            self._nav_rows["avisos"].set_status_text(
-                "Ativos" if self.db.settings.backup_enabled else "Desligados"
-            )
-        if "investimentos" in self._nav_rows:
-            cdi = float(getattr(self.db.settings, "cdi_taxa_anual", 10.75) or 10.75)
-            self._nav_rows["investimentos"].set_status_text(f"{cdi:.2f}%".replace(".", ","))
+        f_email = QFont(self.lbl_nav_email.font())
+        f_email.setPixelSize(email_px)
+        avail_email_w = max(90, self.nav_card.width() - avatar_sz - 54)
+        elided_email = QFontMetrics(f_email).elidedText(
+            disp_email, Qt.TextElideMode.ElideRight, avail_email_w
+        )
+        self.lbl_nav_email.setText(elided_email)
+        self.lbl_nav_email.setToolTip(disp_email)
+        self.btn_nav_logout.setIcon(get_line_icon("logout", color=pal.text_secondary, size=max(12, int(round(16 * z)))))
 
         for k, row_w in self._nav_rows.items():
             row_w.set_active(k == self._active_section, pal)
+
+        nav_w = int(round(264 * z)) if z >= 1.0 else max(228, int(round(264 * z)))
+        self.nav_card.setFixedWidth(nav_w)
 
         self.perfil_tab.refresh_data()
         self.avisos_tab.refresh_data()

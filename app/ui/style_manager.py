@@ -813,20 +813,12 @@ def build_stylesheet(palette: ThemePalette) -> str:
         margin: 4px 6px;
     }}
     QPushButton#UserAvatarButton {{
-        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #C026D3, stop:0.5 #9333EA, stop:1 #6366F1);
-        color: #FFFFFF;
+        background-color: transparent;
         border: none;
-        border-radius: 17px;
-        min-width: 34px;
-        max-width: 34px;
-        min-height: 34px;
-        max-height: 34px;
         padding: 0px;
-        font-size: 13px;
-        font-weight: 700;
     }}
     QPushButton#UserAvatarButton:hover {{
-        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #A21CAF, stop:0.5 #7E22CE, stop:1 #4F46E5);
+        background-color: transparent;
     }}
     QComboBox#ProfileTopCombo {{
         background-color: {p.primary_active_pill};

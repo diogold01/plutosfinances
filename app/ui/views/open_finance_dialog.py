@@ -241,6 +241,7 @@ class OpenFinanceSyncDialog(QDialog):
         self.table_accounts.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_accounts.verticalHeader().setVisible(False)
         self.table_accounts.verticalHeader().setDefaultSectionSize(36)
+        self.table_accounts.setMinimumHeight(140)
         self.table_accounts.setMaximumHeight(165)
         ah = self.table_accounts.horizontalHeader()
         ah.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
