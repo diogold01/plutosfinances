@@ -206,12 +206,18 @@ class DashboardView(QWidget):
         acc_hdr.addWidget(btn_all_acc)
         acc_lay.addLayout(acc_hdr)
 
+        self.acc_scroll = QScrollArea()
+        self.acc_scroll.setWidgetResizable(True)
+        self.acc_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.acc_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         self.acc_list_widget = QWidget()
+        self.acc_list_widget.setStyleSheet("background: transparent;")
         self.acc_list_layout = QVBoxLayout(self.acc_list_widget)
-        self.acc_list_layout.setContentsMargins(0, 2, 0, 2)
+        self.acc_list_layout.setContentsMargins(0, 2, 4, 2)
         self.acc_list_layout.setSpacing(0)
-        acc_lay.addWidget(self.acc_list_widget, stretch=1)
-        c_acc.setMinimumHeight(250)
+        self.acc_scroll.setWidget(self.acc_list_widget)
+        acc_lay.addWidget(self.acc_scroll, stretch=1)
+        c_acc.setMinimumHeight(310)
         grid.addWidget(c_acc, 0, 0)
 
         # Painel 2 (0, 1): Gastos por categoria (Donut + legenda tabular com %)
@@ -246,7 +252,7 @@ class DashboardView(QWidget):
         self.cat_legend_layout.setSpacing(8)
         pie_body.addWidget(self.cat_legend_widget, 6)
         pie_lay.addLayout(pie_body, stretch=1)
-        c_pie.setMinimumHeight(250)
+        c_pie.setMinimumHeight(310)
         grid.addWidget(c_pie, 0, 1)
 
         # Painel 3 (1, 0): Resumo mensal (Gráfico de barras vertical 6 meses)
@@ -271,7 +277,7 @@ class DashboardView(QWidget):
         self.monthly_chart_view.setStyleSheet("background: transparent;")
         self.monthly_chart_view.setMinimumHeight(200)
         mon_lay.addWidget(self.monthly_chart_view, stretch=1)
-        c_monthly.setMinimumHeight(250)
+        c_monthly.setMinimumHeight(310)
         grid.addWidget(c_monthly, 1, 0)
 
         # Painel 4 (1, 1): Faturas de cartões em lista limpa
@@ -292,12 +298,18 @@ class DashboardView(QWidget):
         cc_hdr.addWidget(btn_all_cc)
         cc_lay.addLayout(cc_hdr)
 
+        self.cards_scroll = QScrollArea()
+        self.cards_scroll.setWidgetResizable(True)
+        self.cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.cards_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         self.cards_list_widget = QWidget()
+        self.cards_list_widget.setStyleSheet("background: transparent;")
         self.cards_list_layout = QVBoxLayout(self.cards_list_widget)
-        self.cards_list_layout.setContentsMargins(0, 2, 0, 2)
+        self.cards_list_layout.setContentsMargins(0, 2, 4, 2)
         self.cards_list_layout.setSpacing(0)
-        cc_lay.addWidget(self.cards_list_widget, stretch=1)
-        c_cards.setMinimumHeight(250)
+        self.cards_scroll.setWidget(self.cards_list_widget)
+        cc_lay.addWidget(self.cards_scroll, stretch=1)
+        c_cards.setMinimumHeight(310)
         grid.addWidget(c_cards, 1, 1)
 
         # Painel 5 (2, 0, span 2): Orçamentos do mês em cards de progresso
@@ -390,14 +402,16 @@ class DashboardView(QWidget):
             lbl_empty_acc.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.acc_list_layout.addWidget(lbl_empty_acc)
         else:
-            for idx, acc in enumerate(accounts[:6]):
+            for idx, acc in enumerate(accounts):
                 row_f = QFrame()
+                row_f.setObjectName("DashListRow")
+                row_f.setMinimumHeight(52)
                 row_f.setStyleSheet(
-                    f"QFrame {{ background: transparent; border: none; "
-                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < min(len(accounts), 6) - 1 else ''} }}"
+                    f"QFrame#DashListRow {{ background: transparent; border: none; "
+                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < len(accounts) - 1 else ''} }}"
                 )
                 rh = QHBoxLayout(row_f)
-                rh.setContentsMargins(2, 8, 2, 8)
+                rh.setContentsMargins(2, 4, 2, 4)
                 rh.setSpacing(10)
 
                 ico_lbl = QLabel()
@@ -406,29 +420,25 @@ class DashboardView(QWidget):
                 rh.addWidget(ico_lbl)
 
                 name_lbl = QLabel(acc.descricao)
-                name_lbl.setStyleSheet("font-size: 13px; font-weight: 500;")
+                name_lbl.setStyleSheet("font-size: 12px; font-weight: 500;")
                 rh.addWidget(name_lbl, 1)
 
                 val_col = QVBoxLayout()
-                val_col.setSpacing(1)
+                val_col.setContentsMargins(0, 0, 0, 0)
+                val_col.setSpacing(0)
                 val_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 cur_lbl = QLabel(format_currency(acc.saldo_atual))
                 cur_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-                cur_lbl.setStyleSheet("font-size: 13px; font-weight: 700;")
+                cur_lbl.setStyleSheet("font-size: 12px; font-weight: 700;")
                 prev_lbl = QLabel(f"Prev: {format_currency(acc.saldo_previsto)}")
                 prev_lbl.setObjectName("MutedText")
                 prev_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-                prev_lbl.setStyleSheet("font-size: 11px;")
+                prev_lbl.setStyleSheet("font-size: 10px;")
                 val_col.addWidget(cur_lbl)
                 val_col.addWidget(prev_lbl)
                 rh.addLayout(val_col)
 
                 self.acc_list_layout.addWidget(row_f)
-            if len(accounts) > 6:
-                more_lbl = QLabel(f"+ {len(accounts) - 6} conta(s) — clique em Ver contas")
-                more_lbl.setObjectName("MutedText")
-                more_lbl.setStyleSheet("font-size: 11px; padding-top: 6px;")
-                self.acc_list_layout.addWidget(more_lbl)
             self.acc_list_layout.addStretch()
 
         # 2. Transações do mês
@@ -450,12 +460,15 @@ class DashboardView(QWidget):
             year, month, kind=KIND_DESPESA, profile_id=profile_id, mode=mode
         )
         chart = QChart()
+        chart.setBackgroundVisible(False)
+        chart.setPlotAreaBackgroundVisible(False)
         chart.setBackgroundBrush(QColor(pal.surface_card))
-        chart.setBackgroundRoundness(12.0)
-        chart.setMargins(QMargins(4, 4, 4, 4))
+        chart.setBackgroundRoundness(0.0)
+        chart.setMargins(QMargins(0, 0, 0, 0))
         chart.legend().setVisible(False)
         series = QPieSeries()
-        series.setHoleSize(0.58)
+        series.setHoleSize(0.56)
+        series.setPieSize(0.84)
         if not exp_cats:
             sl = series.append("Sem despesas", 1.0)
             sl.setColor(QColor(pal.border_subtle))
@@ -508,6 +521,8 @@ class DashboardView(QWidget):
             year, month, months_count=6, profile_id=profile_id, mode=mode
         )
         m_chart = QChart()
+        m_chart.setBackgroundVisible(False)
+        m_chart.setPlotAreaBackgroundVisible(False)
         m_chart.setBackgroundBrush(QColor(pal.surface_card))
         m_chart.setBackgroundRoundness(12.0)
         m_chart.setMargins(QMargins(4, 4, 4, 4))
@@ -597,14 +612,16 @@ class DashboardView(QWidget):
             lbl_empty_cc.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.cards_list_layout.addWidget(lbl_empty_cc)
         else:
-            for idx, inv in enumerate(invoices[:5]):
+            for idx, inv in enumerate(invoices):
                 row_f = QFrame()
+                row_f.setObjectName("DashListRow")
+                row_f.setMinimumHeight(52)
                 row_f.setStyleSheet(
-                    f"QFrame {{ background: transparent; border: none; "
-                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < min(len(invoices), 5) - 1 else ''} }}"
+                    f"QFrame#DashListRow {{ background: transparent; border: none; "
+                    f"{f'border-bottom: 1px solid {pal.border_subtle};' if idx < len(invoices) - 1 else ''} }}"
                 )
                 rh = QHBoxLayout(row_f)
-                rh.setContentsMargins(2, 9, 2, 9)
+                rh.setContentsMargins(2, 4, 2, 4)
                 rh.setSpacing(10)
 
                 ico_lbl = QLabel()
@@ -614,6 +631,7 @@ class DashboardView(QWidget):
                 rh.addWidget(ico_lbl)
 
                 name_col = QVBoxLayout()
+                name_col.setContentsMargins(0, 0, 0, 0)
                 name_col.setSpacing(1)
                 c_name = QLabel(inv.card.nome)
                 c_name.setStyleSheet("font-size: 13px; font-weight: 600;")
@@ -653,8 +671,9 @@ class DashboardView(QWidget):
         else:
             for b in budgets[:6]:
                 row_b = QFrame()
+                row_b.setObjectName("DashBudgetRow")
                 row_b.setStyleSheet(
-                    f"QFrame {{ background-color: {pal.app_background}; border: 1px solid {pal.border_subtle}; border-radius: 10px; }}"
+                    f"QFrame#DashBudgetRow {{ background-color: {pal.app_background}; border: 1px solid {pal.border_subtle}; border-radius: 10px; }}"
                 )
                 rb = QHBoxLayout(row_b)
                 rb.setContentsMargins(12, 10, 12, 10)

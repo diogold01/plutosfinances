@@ -172,20 +172,8 @@ class FerramentasView(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(16)
-
-        title_box = QVBoxLayout()
-        title_box.setSpacing(4)
-        lbl_t = QLabel("Ferramentas")
-        lbl_t.setObjectName("SectionTitle")
-        lbl_s = QLabel(
-            "Importação e exportação de planilhas, controle de empréstimos, notas e simulador de juros"
-        )
-        lbl_s.setObjectName("MutedText")
-        title_box.addWidget(lbl_t)
-        title_box.addWidget(lbl_s)
-        root.addLayout(title_box)
+        root.setContentsMargins(0, 4, 0, 20)
+        root.setSpacing(14)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_io_tab(), "Importar e Exportar")

@@ -6,8 +6,18 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QFont, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPixmap,
+    QResizeEvent,
+    QShortcut,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -19,14 +29,16 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QStatusBar,
+    QTableWidget,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
 )
 
-from app.config.app_settings import DateReferenceMode, IMAGES_DIR
+from app.config.app_settings import DateReferenceMode, IMAGES_DIR, clamp_ui_zoom
 from app.config.theme_palette import ThemePalette
 from app.database.backup_service import BackupResult, BackupSchedulerService
 from app.database.connection_manager import ConnectionManager
@@ -61,6 +73,16 @@ from app.ui.views.tags_view import TagsView
 from app.ui.views.transacoes_view import TransacoesView
 
 
+class _ResponsiveStackedWidget(QStackedWidget):
+    """Stack principal responsivo que não trava a largura mínima da janela pela maior aba."""
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(560, 400)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(960, 640)
+
+
 class MainWindow(QMainWindow):
     """
     Janela principal nativa Desktop (PySide6 / Qt6) reproduzindo a ergonomia,
@@ -80,14 +102,13 @@ class MainWindow(QMainWindow):
         ("categorias", "Categorias"),
         ("tags", "Tags"),
         ("calendario", "Calendário"),
-        ("configuracoes", "Configurações"),
     ]
 
     NAV_GROUPS: List[Tuple[str, List[str]]] = [
         ("ANALISAR", ["dashboard", "relatorios", "graficos"]),
         ("ORGANIZAR", ["transacoes", "cartoes", "orcamentos", "calendario"]),
         ("PLANEJAR", ["objetivos"]),
-        ("CADASTROS", ["contas", "categorias", "tags", "configuracoes"]),
+        ("CADASTROS", ["contas", "categorias", "tags"]),
     ]
 
     NAV_ICONS: Dict[str, str] = {
@@ -144,8 +165,16 @@ class MainWindow(QMainWindow):
         self._nav_section_labels: List[QLabel] = []
         self._views: Dict[str, QWidget] = {}
         self.current_nav_key: str = "dashboard"
+        self._sidebar_is_collapsed: bool = False
+
+        self._auto_zoom_timer = QTimer(self)
+        self._auto_zoom_timer.setSingleShot(True)
+        self._auto_zoom_timer.setInterval(40)
+        self._auto_zoom_timer.timeout.connect(self._apply_auto_zoom_from_window)
 
         self._build_ui()
+        self._setup_zoom_shortcuts_and_filter()
+        self._restore_initial_ui_zoom()
         self.backup_service.add_backup_listener(self._on_backup_cycle_finished)
         self.backup_service.add_advance_warning_listener(self._on_backup_advance_warning)
 
@@ -220,6 +249,7 @@ class MainWindow(QMainWindow):
         nav_scroll.setObjectName("SideMenuScroll")
         nav_scroll.setWidgetResizable(True)
         nav_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         nav_container = QWidget()
         nav_container.setObjectName("SideMenuContainer")
         nav_v = QVBoxLayout(nav_container)
@@ -266,31 +296,42 @@ class MainWindow(QMainWindow):
         content_v.setContentsMargins(0, 0, 0, 0)
         content_v.setSpacing(0)
 
-        # Barra Superior Fixa (DesktopHeader)
+        # Barra Superior Fixa (DesktopHeader — estilo Arthas limpo e alinhado em 24px)
         self.header_frame = QFrame()
         self.header_frame.setObjectName("DesktopHeader")
         self.header_frame.setFixedHeight(54)
         h_lay = QHBoxLayout(self.header_frame)
-        h_lay.setContentsMargins(16, 8, 20, 8)
+        h_lay.setContentsMargins(24, 8, 24, 8)
         h_lay.setSpacing(10)
 
-        # Campo de Busca Global (.srch)
+        # 1. Seletor de Perfil Ativo à esquerda (pílula compacta "👤 Pessoal ▾" estilo Arthas)
+        self.cb_profile = QComboBox()
+        self.cb_profile.setObjectName("ProfileTopCombo")
+        self.cb_profile.setIconSize(QSize(15, 15))
+        self.cb_profile.setFixedHeight(34)
+        self.cb_profile.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.cb_profile.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cb_profile.currentIndexChanged.connect(self._on_profile_combo_changed)
+        h_lay.addWidget(self.cb_profile, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # 2. Campo de Busca Global (.srch)
         self.ed_global_search = QLineEdit()
         self.ed_global_search.setObjectName("SearchInput")
-        self.ed_global_search.setPlaceholderText("Buscar no Plutos...")
+        self.ed_global_search.setPlaceholderText("Buscar lançamento ou ir para uma tela...")
         self.ed_global_search.addAction(
             get_line_icon("search", color=pal.text_secondary, size=16),
             QLineEdit.ActionPosition.LeadingPosition,
         )
         self.ed_global_search.setClearButtonEnabled(True)
-        self.ed_global_search.setMinimumWidth(200)
-        self.ed_global_search.setMaximumWidth(280)
+        self.ed_global_search.setFixedHeight(34)
+        self.ed_global_search.setMinimumWidth(240)
+        self.ed_global_search.setMaximumWidth(320)
         self.ed_global_search.textChanged.connect(lambda _: self.refresh_current_view())
-        h_lay.addWidget(self.ed_global_search)
+        h_lay.addWidget(self.ed_global_search, 0, Qt.AlignmentFlag.AlignVCenter)
 
         h_lay.addStretch()
 
-        # Seletor de Período Mensal Centralizado (< Novembro / 2026 >)
+        # 3. Seletor de Período Mensal Centralizado (< Novembro / 2026 >)
         self.period_pill = QFrame()
         self.period_pill.setObjectName("PeriodPill")
         p_lay = QHBoxLayout(self.period_pill)
@@ -323,49 +364,11 @@ class MainWindow(QMainWindow):
 
         h_lay.addStretch()
 
-        # Ações do Topbar à Direita
-        # 0. Assistente Gemini (lançamento rápido por IA), ao lado esquerdo de "+ Novo"
+        # Ações do Topbar à Direita (sem botões técnicos soltos; configurações exclusivas no avatar)
         self.btn_gemini = GeminiButton()
         self.btn_gemini.clicked.connect(self._quick_ai_entry)
         h_lay.addWidget(self.btn_gemini)
 
-        # 1. Botão Primário "+ Novo"
-        self.btn_fab_add = QPushButton("Novo")
-        self.btn_fab_add.setObjectName("PrimaryButton")
-        self.btn_fab_add.setIcon(get_line_icon("plus", color="#FFFFFF", size=16))
-        self.btn_fab_add.setFixedHeight(34)
-        self.btn_fab_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_fab_add.setToolTip("Criação rápida de lançamentos e cadastros")
-        self.btn_fab_add.clicked.connect(self._show_quick_add_menu)
-        h_lay.addWidget(self.btn_fab_add)
-
-        # 2. Seletor de Modo de Data de Referência (Discreto)
-        self.cb_date_ref = QComboBox()
-        self.cb_date_ref.setToolTip("Modo de Data de Referência")
-        self.cb_date_ref.setFixedHeight(34)
-        self.cb_date_ref.addItem("Ref: Vencimento", DateReferenceMode.VENCIMENTO.value)
-        self.cb_date_ref.addItem("Ref: Lançamento", DateReferenceMode.LANCAMENTO.value)
-        self.cb_date_ref.addItem(
-            "Ref: Lançamento (Distribuir)",
-            DateReferenceMode.LANCAMENTO_DISTRIBUIR.value,
-        )
-        self.cb_date_ref.addItem("Ref: Efetivação", DateReferenceMode.EFETIVACAO.value)
-        idx_ref = self.cb_date_ref.findData(self.db.settings.date_reference_mode)
-        if idx_ref >= 0:
-            self.cb_date_ref.setCurrentIndex(idx_ref)
-        self.cb_date_ref.currentIndexChanged.connect(self._on_date_ref_changed)
-        h_lay.addWidget(self.cb_date_ref)
-
-        # 3. Status da Base SQLite
-        self.btn_db_status = QPushButton()
-        self.btn_db_status.setObjectName("SecondaryButton")
-        self.btn_db_status.setIcon(get_line_icon("db", color=pal.text_secondary, size=16))
-        self.btn_db_status.setFixedHeight(34)
-        self.btn_db_status.setToolTip("Clique para gerenciar o arquivo SQLite ou Backups")
-        self.btn_db_status.clicked.connect(lambda: self.navigate_to("configuracoes"))
-        h_lay.addWidget(self.btn_db_status)
-
-        # 4. Botão de Atualização / Refresh (F5)
         self.btn_refresh = QPushButton()
         self.btn_refresh.setObjectName("IconButton")
         self.btn_refresh.setFixedSize(34, 34)
@@ -378,7 +381,6 @@ class MainWindow(QMainWindow):
         for seq in ("Ctrl+K", "Ctrl+J"):
             QShortcut(QKeySequence(seq), self, activated=self._quick_ai_entry)
 
-        # 5. Central de Notificações / Alertas
         self.btn_notifications = QPushButton()
         self.btn_notifications.setObjectName("IconButton")
         self.btn_notifications.setFixedSize(34, 34)
@@ -387,7 +389,6 @@ class MainWindow(QMainWindow):
         self.btn_notifications.clicked.connect(self._show_notifications_menu)
         h_lay.addWidget(self.btn_notifications)
 
-        # 6. Alternador de Tema Rápido
         self.btn_theme_toggle = QPushButton()
         self.btn_theme_toggle.setObjectName("IconButton")
         self.btn_theme_toggle.setFixedSize(34, 34)
@@ -395,18 +396,20 @@ class MainWindow(QMainWindow):
         self.btn_theme_toggle.clicked.connect(self.toggle_theme_mode)
         h_lay.addWidget(self.btn_theme_toggle)
 
-        # 7. Seletor de Perfil Ativo
-        self.cb_profile = QComboBox()
-        self.cb_profile.setIconSize(QSize(18, 18))
-        self.cb_profile.setFixedHeight(34)
-        self.cb_profile.setMinimumWidth(125)
-        self.cb_profile.currentIndexChanged.connect(self._on_profile_combo_changed)
-        h_lay.addWidget(self.cb_profile)
+        # Avatar Circular do Usuário (único ponto de entrada para Configurações / Minha conta)
+        self.btn_user_avatar = QPushButton("P")
+        self.btn_user_avatar.setObjectName("UserAvatarButton")
+        self.btn_user_avatar.setFixedSize(34, 34)
+        self.btn_user_avatar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_user_avatar.setToolTip("Sua conta")
+        self.btn_user_avatar.clicked.connect(self._show_user_account_menu)
+        h_lay.addWidget(self.btn_user_avatar)
 
         content_v.addWidget(self.header_frame)
 
-        # Área de Visualização (Stacked Views)
-        self.stack = QStackedWidget()
+        # Área de Visualização (Stacked Views Responsivo)
+        self.stack = _ResponsiveStackedWidget()
+        self.stack.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         content_v.addWidget(self.stack, stretch=1)
 
         # Barra de Status inferior (mantida oculta para evitar vazamento visual na base)
@@ -416,6 +419,7 @@ class MainWindow(QMainWindow):
 
         main_h.addLayout(content_v, stretch=1)
         self.setCentralWidget(central)
+        self.setMinimumSize(880, 580)
 
         self._init_views()
         self._update_theme_button_label()
@@ -521,6 +525,10 @@ class MainWindow(QMainWindow):
                 self._views[key] = self._build_placeholder_widget(key, label)
             self.stack.addWidget(self._views[key])
 
+        for view_widget in self._views.values():
+            if self.stack.indexOf(view_widget) < 0:
+                self.stack.addWidget(view_widget)
+
     def _build_placeholder_widget(self, key: str, label: str) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -554,12 +562,8 @@ class MainWindow(QMainWindow):
         btn_go_cat = QPushButton("Ir para Categorias")
         btn_go_cat.setObjectName("SecondaryButton")
         btn_go_cat.clicked.connect(lambda: self.navigate_to("categorias"))
-        btn_go_cfg = QPushButton("Gerenciar Banco SQLite & Backups")
-        btn_go_cfg.setObjectName("SecondaryButton")
-        btn_go_cfg.clicked.connect(lambda: self.navigate_to("configuracoes"))
         quick_row.addWidget(btn_go_contas)
         quick_row.addWidget(btn_go_cat)
-        quick_row.addWidget(btn_go_cfg)
         quick_row.addStretch()
         c_lay.addLayout(quick_row)
 
@@ -612,20 +616,21 @@ class MainWindow(QMainWindow):
         self.btn_next_month.setIcon(get_line_icon("rt", color=pal.text_secondary, size=14))
         self.btn_refresh.setIcon(get_line_icon("refresh", color=pal.text_secondary, size=16))
 
-        db_path = self.db.ensure_connected()
-        self.btn_db_status.setText(f"  {db_path.name}")
-        self.btn_db_status.setIcon(get_line_icon("db", color=pal.text_secondary, size=16))
-
+        self.db.ensure_connected()
         profiles = self.profile_repo.list_profiles(include_archived=False)
         active_prof = self.profile_repo.get_active_profile()
         self.active_profile_id = active_prof.id
 
+        display_name = (self.db.settings.user_display_name or "").strip() or active_prof.name.strip() or "P"
+        self.btn_user_avatar.setText(display_name[0].upper())
+
         self.cb_profile.blockSignals(True)
         self.cb_profile.clear()
+        user_ico = get_line_icon("user", color=pal.primary, size=15)
         for idx, p in enumerate(profiles):
             self.cb_profile.addItem(
-                create_color_badge_icon(p.color_hex, p.name[:1], size=18),
-                p.name,
+                user_ico,
+                f" {p.name}  ▾",
                 p.id,
             )
             if p.id == active_prof.id:
@@ -668,14 +673,6 @@ class MainWindow(QMainWindow):
         self.active_profile_id = prof_id
         self.refresh_current_view()
 
-    def _on_date_ref_changed(self, idx: int) -> None:
-        if idx < 0:
-            return
-        mode_val = str(self.cb_date_ref.currentData())
-        self.db.settings.date_reference_mode = mode_val
-        self.db.settings.save()
-        self.refresh_current_view()
-
     def go_previous_month(self) -> None:
         if self.current_month == 1:
             self.current_month = 12
@@ -702,8 +699,11 @@ class MainWindow(QMainWindow):
         self.refresh_current_view()
 
     def toggle_sidebar(self) -> None:
-        collapsed = self.sidebar_frame.width() > 80
-        self.sidebar_frame.setFixedWidth(56 if collapsed else 216)
+        collapsed = not bool(getattr(self, "_sidebar_is_collapsed", False))
+        self._sidebar_is_collapsed = collapsed
+        z = clamp_ui_zoom(getattr(self.db.settings, "ui_zoom_factor", 1.0))
+        base_side = 56 if collapsed else 216
+        self.sidebar_frame.setFixedWidth(max(44, int(round(base_side * z))))
         s_lay = self.sidebar_frame.layout()
         if isinstance(s_lay, QVBoxLayout):
             s_lay.setContentsMargins(6 if collapsed else 12, 16, 6 if collapsed else 12, 12)
@@ -728,8 +728,9 @@ class MainWindow(QMainWindow):
         else:
             self.btn_theme_toggle_side.setText("  Modo Claro" if is_dark else "  Modo Escuro")
             self.btn_theme_toggle_side.setToolTip("")
-        self.btn_theme_toggle_side.setMinimumSize(0, 36)
-        self.btn_theme_toggle_side.setMaximumSize(16777215, 36)
+        btn_h = max(28, int(round(36 * z)))
+        self.btn_theme_toggle_side.setMinimumSize(0, btn_h)
+        self.btn_theme_toggle_side.setMaximumSize(16777215, btn_h)
 
         self.db.settings.sidebar_collapsed = collapsed
         self.db.settings.save()
@@ -742,7 +743,7 @@ class MainWindow(QMainWindow):
         self.db.settings.save()
         app = QApplication.instance()
         if isinstance(app, QApplication):
-            apply_app_theme(app, new_mode)
+            apply_app_theme(app, new_mode, zoom=self.db.settings.ui_zoom_factor)
         self._update_theme_button_label()
         self.navigate_to(self.current_nav_key)
         self.refresh_current_view()
@@ -757,7 +758,7 @@ class MainWindow(QMainWindow):
         )
         self.btn_theme_toggle_side.setIcon(get_line_icon(theme_icon, color=pal.text_secondary, size=18))
         self.btn_theme_toggle_side.setIconSize(QSize(18, 18))
-        collapsed = self.sidebar_frame.width() <= 70
+        collapsed = bool(getattr(self, "_sidebar_is_collapsed", False))
         if collapsed:
             self.btn_theme_toggle_side.setText("")
             self.btn_theme_toggle_side.setToolTip(
@@ -768,8 +769,185 @@ class MainWindow(QMainWindow):
                 "  Modo Claro" if is_dark else "  Modo Escuro"
             )
             self.btn_theme_toggle_side.setToolTip("")
-        self.btn_theme_toggle_side.setMinimumSize(0, 36)
-        self.btn_theme_toggle_side.setMaximumSize(16777215, 36)
+        z = clamp_ui_zoom(getattr(self.db.settings, "ui_zoom_factor", 1.0))
+        btn_h = max(28, int(round(36 * z)))
+        self.btn_theme_toggle_side.setMinimumSize(0, btn_h)
+        self.btn_theme_toggle_side.setMaximumSize(16777215, btn_h)
+
+    # ------------------------------------------------------------------ #
+    # Controle Responsivo de Zoom da Interface (60% a 150% + Automático)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def compute_auto_zoom(window_width: int) -> float:
+        """Calcula o zoom proporcional à largura da janela: min(1.0, max(0.7, largura / 1920))."""
+        raw = min(1.0, max(0.7, float(max(1, int(window_width))) / 1920.0))
+        return round(raw, 2)
+
+    def _setup_zoom_shortcuts_and_filter(self) -> None:
+        self._zoom_shortcuts: List[QShortcut] = []
+        shortcut_specs = [
+            ("Ctrl+-", lambda: self.step_ui_zoom(-0.10)),
+            ("Ctrl+_", lambda: self.step_ui_zoom(-0.10)),
+            ("Ctrl+=", lambda: self.step_ui_zoom(+0.10)),
+            ("Ctrl++", lambda: self.step_ui_zoom(+0.10)),
+            ("Ctrl+0", lambda: self.set_ui_zoom(1.0, manual=True)),
+        ]
+        for seq, handler in shortcut_specs:
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.WindowShortcut)
+            sc.activated.connect(handler)
+            self._zoom_shortcuts.append(sc)
+
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
+    def _restore_initial_ui_zoom(self) -> None:
+        if bool(getattr(self.db.settings, "ui_zoom_auto", False)):
+            target = self.compute_auto_zoom(self.width())
+        else:
+            target = clamp_ui_zoom(getattr(self.db.settings, "ui_zoom_factor", 1.0))
+        self.set_ui_zoom(target, manual=False, save=False)
+
+    def set_ui_zoom(
+        self, z: float, *, manual: bool = False, save: bool = True
+    ) -> float:
+        """Aplica o fator de zoom (limitado entre 0.60 e 1.50), ajusta QSS/geometria e persiste."""
+        clamped = clamp_ui_zoom(z)
+        if manual:
+            self.db.settings.ui_zoom_auto = False
+        self.db.settings.ui_zoom_factor = clamped
+        if save:
+            self.db.settings.save()
+
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            apply_app_theme(app, self.db.settings.theme_mode, zoom=clamped)
+
+        self._apply_zoom_geometry(clamped)
+        self._refresh_charts_after_zoom()
+
+        if hasattr(self, "config_hub_view") and hasattr(
+            self.config_hub_view, "preferencias_tab"
+        ):
+            self.config_hub_view.preferencias_tab.refresh_data()
+        return clamped
+
+    def step_ui_zoom(self, delta: float) -> float:
+        cur = clamp_ui_zoom(getattr(self.db.settings, "ui_zoom_factor", 1.0))
+        return self.set_ui_zoom(round(cur + float(delta), 2), manual=True)
+
+    def set_ui_zoom_auto(self, enabled: bool, *, save: bool = True) -> float:
+        self.db.settings.ui_zoom_auto = bool(enabled)
+        if enabled:
+            target = self.compute_auto_zoom(self.width())
+            return self.set_ui_zoom(target, manual=False, save=save)
+        if save:
+            self.db.settings.save()
+        if hasattr(self, "config_hub_view") and hasattr(
+            self.config_hub_view, "preferencias_tab"
+        ):
+            self.config_hub_view.preferencias_tab.refresh_data()
+        return clamp_ui_zoom(self.db.settings.ui_zoom_factor)
+
+    def _apply_auto_zoom_from_window(self) -> None:
+        if not bool(getattr(self.db.settings, "ui_zoom_auto", False)):
+            return
+        target = self.compute_auto_zoom(self.width())
+        if abs(target - clamp_ui_zoom(self.db.settings.ui_zoom_factor)) >= 0.01:
+            self.set_ui_zoom(target, manual=False, save=True)
+
+    def _apply_zoom_geometry(self, z: float) -> None:
+        collapsed = bool(getattr(self, "_sidebar_is_collapsed", False))
+        base_side = 56 if collapsed else 216
+        self.sidebar_frame.setFixedWidth(max(44, int(round(base_side * z))))
+        self.header_frame.setFixedHeight(max(38, int(round(54 * z))))
+
+        h34 = max(24, int(round(34 * z)))
+        h28 = max(20, int(round(28 * z)))
+        btn_side_h = max(28, int(round(36 * z)))
+        self.btn_theme_toggle_side.setMinimumSize(0, btn_side_h)
+        self.btn_theme_toggle_side.setMaximumSize(16777215, btn_side_h)
+
+        self.cb_profile.setFixedHeight(h34)
+        self.ed_global_search.setFixedHeight(h34)
+        self.ed_global_search.setMinimumWidth(max(160, int(round(240 * z))))
+        self.ed_global_search.setMaximumWidth(max(220, int(round(320 * z))))
+        self.btn_prev_month.setFixedSize(h28, h28)
+        self.btn_next_month.setFixedSize(h28, h28)
+
+        for top_btn in (
+            self.btn_refresh,
+            self.btn_notifications,
+            self.btn_theme_toggle,
+            self.btn_user_avatar,
+        ):
+            top_btn.setFixedSize(h34, h34)
+
+        if hasattr(self, "config_hub_view") and hasattr(
+            self.config_hub_view, "nav_card"
+        ):
+            self.config_hub_view.nav_card.setFixedWidth(max(180, int(round(264 * z))))
+
+        for view_attr in ("transacoes_view", "cartoes_view"):
+            vw = getattr(self, view_attr, None)
+            drawer = getattr(vw, "installment_drawer", None)
+            if drawer is not None:
+                dw = max(280, int(round(440 * z)))
+                drawer._drawer_width = dw
+                drawer.setFixedWidth(dw)
+                drawer._sync_overlay_geometry()
+
+        row_h = max(26, int(round(38 * z)))
+        for tbl in self.findChildren(QTableWidget):
+            vh = tbl.verticalHeader()
+            if vh is not None:
+                vh.setDefaultSectionSize(row_h)
+
+    def _refresh_charts_after_zoom(self) -> None:
+        current = self.stack.currentWidget() if hasattr(self, "stack") else None
+        if current in (
+            getattr(self, "dashboard_view", None),
+            getattr(self, "graficos_view", None),
+        ) and hasattr(current, "refresh_data"):
+            current.refresh_data()
+        try:
+            from PySide6.QtCharts import QChartView
+
+            for cv in self.findChildren(QChartView):
+                ch = cv.chart()
+                if ch is not None and ch.layout() is not None:
+                    ch.layout().invalidate()
+                cv.updateGeometry()
+                cv.viewport().update()
+        except Exception:
+            pass
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if (
+            self.isVisible()
+            and event.type() == QEvent.Type.Wheel
+            and isinstance(event, QWheelEvent)
+            and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        ):
+            if isinstance(watched, QWidget) and watched.window() is self:
+                dy = event.angleDelta().y()
+                if dy != 0:
+                    self.step_ui_zoom(0.05 if dy > 0 else -0.05)
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if bool(getattr(self.db.settings, "ui_zoom_auto", False)):
+            self._auto_zoom_timer.start()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        super().closeEvent(event)
 
     def _show_quick_add_menu(self) -> None:
         menu = QMenu(self)
@@ -897,7 +1075,7 @@ class MainWindow(QMainWindow):
                     "⚠️",
                     "Backup Automático Iminente (5 min)",
                     f"Ciclo automático de 3h iniciará em ~{m}m {s:02d}s.",
-                    "configuracoes",
+                    "",
                 )
             )
         elif self.backup_service.has_pending_modifications():
@@ -907,7 +1085,7 @@ class MainWindow(QMainWindow):
                     "💾",
                     "Modificações Pendentes de Backup",
                     f"{mut_count} mutações registradas aguardando o próximo ciclo.",
-                    "configuracoes",
+                    "",
                 )
             )
 
@@ -993,7 +1171,10 @@ class MainWindow(QMainWindow):
         else:
             for _icon_glyph, title, details, target_nav in self._unread_notifications:
                 act = QAction(get_line_icon("bell", color=pal.warning_orange, size=16), f"{title} — {details}", self)
-                act.triggered.connect(lambda _, k=target_nav: self.navigate_to(k))
+                if target_nav:
+                    act.triggered.connect(lambda _, k=target_nav: self.navigate_to(k))
+                else:
+                    act.triggered.connect(self._run_manual_backup_from_notifications)
                 menu.addAction(act)
 
         menu.addSeparator()
@@ -1008,3 +1189,100 @@ class MainWindow(QMainWindow):
         self.backup_service.run_backup_cycle(force=True)
         self._refresh_header_state()
         self._check_system_notifications()
+
+    @staticmethod
+    def _mask_email(email: str) -> str:
+        raw = email.strip()
+        if "@" not in raw:
+            return raw
+        local, domain = raw.split("@", 1)
+        if not local:
+            return raw
+        return f"{local[0]}***@{domain}"
+
+    def build_user_account_menu(self) -> QMenu:
+        """Constrói o menu dropdown da conta do usuário (estilo Arthas: Sua conta -> Minha conta / Sair)."""
+        menu = QMenu(self)
+        menu.setObjectName("UserAccountMenu")
+        menu.setMinimumWidth(220)
+        pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+        active_prof = self.profile_repo.get_active_profile()
+
+        card_w = QWidget(menu)
+        card_w.setObjectName("UserMenuCard")
+        card_w.setMinimumWidth(220)
+        card_w.setStyleSheet("QWidget#UserMenuCard { background: transparent; }")
+        v = QVBoxLayout(card_w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+
+        hdr_w = QWidget(card_w)
+        hdr_w.setObjectName("UserMenuHeader")
+        hdr_w.setStyleSheet("QWidget#UserMenuHeader { background: transparent; }")
+        hdr_lay = QVBoxLayout(hdr_w)
+        hdr_lay.setContentsMargins(16, 12, 16, 12)
+        hdr_lay.setSpacing(2)
+
+        lbl_title = QLabel("Sua conta")
+        lbl_title.setObjectName("UserMenuTitle")
+        lbl_title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {pal.text_primary}; background: transparent; border: none;"
+        )
+        raw_email = (self.db.settings.user_email or "").strip()
+        sub_txt = (
+            self._mask_email(raw_email)
+            if raw_email
+            else f"{active_prof.name.strip().lower().replace(' ', '.')}@plutos.local"
+        )
+        lbl_sub = QLabel(sub_txt)
+        lbl_sub.setObjectName("UserMenuSubtitle")
+        lbl_sub.setStyleSheet(
+            f"font-size: 12px; color: {pal.text_secondary}; background: transparent; border: none;"
+        )
+        hdr_lay.addWidget(lbl_title)
+        hdr_lay.addWidget(lbl_sub)
+        v.addWidget(hdr_w)
+
+        sep1 = QFrame(card_w)
+        sep1.setObjectName("ModalSeparator")
+        sep1.setFixedHeight(1)
+        v.addWidget(sep1)
+
+        btn_my_acc = QPushButton("  Minha conta", card_w)
+        btn_my_acc.setObjectName("UserMenuActionRow")
+        btn_my_acc.setIcon(get_line_icon("settings", color=pal.text_primary, size=16))
+        btn_my_acc.setIconSize(QSize(16, 16))
+        btn_my_acc.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_my_acc.clicked.connect(lambda: (menu.close(), self.navigate_to("configuracoes")))
+        v.addWidget(btn_my_acc)
+
+        sep2 = QFrame(card_w)
+        sep2.setObjectName("ModalSeparator")
+        sep2.setFixedHeight(1)
+        v.addWidget(sep2)
+
+        btn_logout = QPushButton("  Sair", card_w)
+        btn_logout.setObjectName("UserMenuLogoutRow")
+        btn_logout.setIcon(get_line_icon("logout", color="#EF4444", size=16))
+        btn_logout.setIconSize(QSize(16, 16))
+        btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_logout.clicked.connect(lambda: (menu.close(), self.close()))
+        v.addWidget(btn_logout)
+
+        w_act = QWidgetAction(menu)
+        w_act.setDefaultWidget(card_w)
+        menu.addAction(w_act)
+
+        menu.btn_my_account = btn_my_acc  # type: ignore[attr-defined]
+        menu.btn_logout = btn_logout  # type: ignore[attr-defined]
+        menu.lbl_subtitle = lbl_sub  # type: ignore[attr-defined]
+        return menu
+
+    def _show_user_account_menu(self) -> None:
+        menu = self.build_user_account_menu()
+        menu.adjustSize()
+        pos = self.btn_user_avatar.mapToGlobal(self.btn_user_avatar.rect().bottomRight())
+        pos.setX(pos.x() - menu.sizeHint().width())
+        pos.setY(pos.y() + 6)
+        if self.isVisible():
+            menu.exec(pos)

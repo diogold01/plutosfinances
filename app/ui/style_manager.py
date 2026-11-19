@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Dict
+import re
+from typing import Dict, Optional
 
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
 
-from app.config.app_settings import FONTS_DIR
+from app.config.app_settings import FONTS_DIR, clamp_ui_zoom
 from app.config.theme_palette import ThemePalette
+
+_CURRENT_UI_ZOOM: float = 1.0
+_BASE_FONT_PT: Optional[float] = None
+_PX_TOKEN_RE = re.compile(r"(\d+(?:\.\d+)?)px\b")
 
 PT_BR_MONTHS: Dict[int, str] = {
     1: "Janeiro",
@@ -117,7 +122,7 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.surface_card};
         border: 1px solid {p.border_subtle};
         border-radius: 14px;
-        padding: 16px;
+        padding: 0px;
     }}
     QFrame#KpiCard:hover {{
         border: 1px solid {p.border_subtle};
@@ -141,11 +146,11 @@ def build_stylesheet(palette: ThemePalette) -> str:
     QLabel#KpiIconPill {{
         background-color: {p.app_background};
         border: 1px solid {p.border_subtle};
-        border-radius: 8px;
-        min-width: 28px;
-        max-width: 28px;
-        min-height: 28px;
-        max-height: 28px;
+        border-radius: 10px;
+        min-width: 36px;
+        max-width: 36px;
+        min-height: 36px;
+        max-height: 36px;
     }}
     QFrame#ModalSeparator {{
         background-color: {p.border_subtle};
@@ -186,10 +191,20 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background: transparent;
         border: none;
     }}
+    QFrame#DrawerScrim {{
+        background-color: rgba(15, 23, 42, 0.48);
+        border: none;
+    }}
     QFrame#SideDrawer {{
         background-color: {p.surface_card};
         border: 1px solid {p.border_subtle};
         border-radius: 14px;
+    }}
+    QFrame#SideDrawer[overlay="true"] {{
+        background-color: {p.surface_card};
+        border: none;
+        border-left: 1px solid {p.border_subtle};
+        border-radius: 0px;
     }}
     QScrollArea#SideDrawerScroll,
     QScrollArea#SideDrawerScroll > QWidget,
@@ -201,8 +216,8 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.surface_card};
         border: 1px solid {p.border_subtle};
         border-radius: 16px;
-        padding: 5px 13px;
-        color: {p.text_secondary};
+        padding: 5px 12px;
+        color: {p.text_primary};
         font-size: 12px;
         font-weight: 600;
     }}
@@ -216,55 +231,67 @@ def build_stylesheet(palette: ThemePalette) -> str:
         color: {p.surface_card};
     }}
     QFrame#FeedDateHeader {{
-        background-color: {p.app_background};
-        border: 1px solid {p.border_subtle};
-        border-radius: 8px;
+        background-color: {"#141822" if p.mode == "dark" else "#EEF2F7"};
+        border: none;
+        border-top: 1px solid {p.border_subtle};
+        border-bottom: 1px solid {p.border_subtle};
+        border-radius: 0px;
+    }}
+    QFrame#FeedDateHeader[today="true"] {{
+        background-color: {p.primary_active_pill};
+        border-top: 1px solid rgba(91, 91, 214, 0.20);
+        border-bottom: 1px solid rgba(91, 91, 214, 0.25);
     }}
     QFrame#FeedRowCard {{
         background-color: {p.surface_card};
-        border: 1px solid {p.border_subtle};
-        border-radius: 10px;
+        border: none;
+        border-bottom: 1px solid {p.border_subtle};
+        border-radius: 0px;
     }}
     QFrame#FeedRowCard:hover {{
-        border-color: {p.primary};
+        background-color: {p.app_background};
     }}
     QFrame#FeedRowCard[selected="true"] {{
         background-color: {p.primary_active_pill};
-        border: 1px solid {p.primary};
+        border-bottom: 1px solid {p.primary};
     }}
     QFrame#TimelineItemCard {{
-        background-color: {p.app_background};
-        border: 1px solid {p.border_subtle};
+        background-color: transparent;
+        border: 1px solid transparent;
         border-radius: 10px;
     }}
     QFrame#TimelineItemCard[current="true"] {{
         background-color: {p.primary_active_pill};
         border: 1px solid {p.primary};
+        border-radius: 10px;
     }}
     QLabel#TimelineTagPaid {{
         background-color: {p.income_badge_bg};
         color: {p.income_green};
-        border-radius: 99px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 700;
+        letter-spacing: 0.03em;
     }}
     QLabel#TimelineTagCurrent {{
         background-color: {p.primary};
         color: #FFFFFF;
-        border-radius: 99px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 700;
+        letter-spacing: 0.03em;
     }}
     QLabel#TimelineTagFuture {{
         background-color: {p.surface_card};
         border: 1px solid {p.border_subtle};
         color: {p.text_secondary};
-        border-radius: 99px;
+        border-radius: 6px;
         padding: 2px 8px;
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 700;
+        letter-spacing: 0.03em;
     }}
     QFrame#UncatBanner {{
         background-color: {p.warning_badge_bg};
@@ -274,6 +301,11 @@ def build_stylesheet(palette: ThemePalette) -> str:
     QFrame#InsightBanner {{
         background-color: {p.transfer_badge_bg};
         border: 1px solid rgba(79, 70, 229, 0.24);
+        border-radius: 10px;
+    }}
+    QFrame#BestDayBanner {{
+        background-color: {"#112820" if p.mode == "dark" else "#ECFDF5"};
+        border: 1px solid {"rgba(60, 192, 139, 0.28)" if p.mode == "dark" else "#A7F3D0"};
         border-radius: 10px;
     }}
     QLabel#SectionTitle {{
@@ -621,7 +653,9 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.app_background};
         border: 1px solid {p.border_subtle};
         border-radius: 8px;
-        padding: 7px 12px;
+        padding: 0px 12px;
+        min-height: 32px;
+        max-height: 32px;
         color: {p.text_primary};
     }}
     QLineEdit#SearchInput:focus {{
@@ -778,6 +812,130 @@ def build_stylesheet(palette: ThemePalette) -> str:
         background-color: {p.border_subtle};
         margin: 4px 6px;
     }}
+    QPushButton#UserAvatarButton {{
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #C026D3, stop:0.5 #9333EA, stop:1 #6366F1);
+        color: #FFFFFF;
+        border: none;
+        border-radius: 17px;
+        min-width: 34px;
+        max-width: 34px;
+        min-height: 34px;
+        max-height: 34px;
+        padding: 0px;
+        font-size: 13px;
+        font-weight: 700;
+    }}
+    QPushButton#UserAvatarButton:hover {{
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #A21CAF, stop:0.5 #7E22CE, stop:1 #4F46E5);
+    }}
+    QComboBox#ProfileTopCombo {{
+        background-color: {p.primary_active_pill};
+        color: {p.primary};
+        border: 1px solid rgba(91, 91, 214, 0.24);
+        border-radius: 8px;
+        padding: 0px 12px 0px 10px;
+        min-height: 32px;
+        max-height: 32px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    QComboBox#ProfileTopCombo:hover {{
+        border: 1px solid {p.primary};
+    }}
+    QComboBox#ProfileTopCombo::drop-down {{
+        width: 0px;
+        border: none;
+        padding: 0px;
+    }}
+    QComboBox#ProfileTopCombo::down-arrow {{
+        image: none;
+        width: 0px;
+        height: 0px;
+    }}
+    QLabel#AccountNavPill {{
+        background-color: {p.warning_badge_bg};
+        color: {p.warning_orange};
+        border: none;
+        border-radius: 10px;
+        padding: 0px 8px;
+        min-height: 20px;
+        max-height: 20px;
+        font-size: 10px;
+        font-weight: 700;
+    }}
+    QMenu#UserAccountMenu {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        border-radius: 12px;
+        padding: 0px;
+    }}
+    QPushButton#UserMenuActionRow {{
+        background-color: transparent;
+        color: {p.text_primary};
+        border: none;
+        border-radius: 0px;
+        padding: 11px 16px;
+        text-align: left;
+        font-size: 13px;
+        font-weight: 500;
+    }}
+    QPushButton#UserMenuActionRow:hover {{
+        background-color: {p.app_background};
+    }}
+    QPushButton#UserMenuLogoutRow {{
+        background-color: transparent;
+        color: #EF4444;
+        border: none;
+        border-top-left-radius: 0px;
+        border-top-right-radius: 0px;
+        border-bottom-left-radius: 11px;
+        border-bottom-right-radius: 11px;
+        padding: 11px 16px;
+        text-align: left;
+        font-size: 13px;
+        font-weight: 500;
+    }}
+    QPushButton#UserMenuLogoutRow:hover {{
+        background-color: rgba(239, 68, 68, 0.08);
+    }}
+    QFrame#AccountWorkspaceFrame {{
+        background-color: {"#13161E" if p.mode == "dark" else "#F1F5F9"};
+        border: none;
+        border-radius: 16px;
+    }}
+    QFrame#AccountNavCard {{
+        background-color: {p.surface_card};
+        border: 1px solid {p.border_subtle};
+        border-radius: 14px;
+    }}
+    QLabel#AccountNavAvatar {{
+        background-color: #3730A3;
+        color: #FFFFFF;
+        border: none;
+        border-radius: 20px;
+        min-width: 40px;
+        max-width: 40px;
+        min-height: 40px;
+        max-height: 40px;
+        font-size: 13px;
+        font-weight: 700;
+    }}
+    QFrame#AccountNavItem {{
+        background-color: transparent;
+        border: none;
+        border-radius: 8px;
+    }}
+    QFrame#AccountNavItem:hover {{
+        background-color: {p.app_background};
+    }}
+    QFrame#AccountNavItem[active="true"] {{
+        background-color: {p.primary_active_pill};
+    }}
+    QFrame#FamilyInnerBox {{
+        background-color: {p.app_background};
+        border: 1px solid {p.border_subtle};
+        border-radius: 12px;
+    }}
     QScrollArea,
     QScrollArea > QWidget#qt_scrollarea_viewport {{
         background-color: transparent;
@@ -930,11 +1088,68 @@ def build_stylesheet(palette: ThemePalette) -> str:
     QCalendarWidget QTableView:disabled {{
         color: {p.text_muted};
     }}
+    QSlider::groove:horizontal {{
+        background-color: {p.border_subtle};
+        height: 6px;
+        border-radius: 3px;
+    }}
+    QSlider::sub-page:horizontal {{
+        background-color: {p.primary};
+        height: 6px;
+        border-radius: 3px;
+    }}
+    QSlider::handle:horizontal {{
+        background-color: {p.primary};
+        border: 2px solid {p.surface_card};
+        width: 16px;
+        height: 16px;
+        margin: -6px 0;
+        border-radius: 9px;
+    }}
+    QSlider::handle:horizontal:hover {{
+        background-color: {p.primary_hover};
+    }}
     """
 
 
-def apply_app_theme(app: QApplication, mode: str) -> ThemePalette:
-    """Aplica a folha de estilo QSS do tema selecionado ('light' ou 'dark') na aplicação."""
+def get_current_ui_zoom() -> float:
+    """Retorna o fator de zoom ativo atualmente na aplicação (0.60 a 1.50)."""
+    return _CURRENT_UI_ZOOM
+
+
+def _scale_qss_px(qss: str, scale: float) -> str:
+    """Escala tokens em pixels do QSS proporcionalmente ao zoom, preservando bordas finas de 1-2px."""
+    z = clamp_ui_zoom(scale)
+    if abs(z - 1.0) <= 1e-3:
+        return qss
+
+    def _repl(match: re.Match[str]) -> str:
+        val = float(match.group(1))
+        if val <= 0.0:
+            return "0px"
+        if val <= 2.0:
+            return f"{max(1, int(round(val)))}px"
+        return f"{max(2, int(round(val * z)))}px"
+
+    return _PX_TOKEN_RE.sub(_repl, qss)
+
+
+def apply_app_theme(
+    app: QApplication, mode: str, zoom: Optional[float] = None
+) -> ThemePalette:
+    """Aplica a folha de estilo QSS do tema selecionado ('light' ou 'dark') e escala de zoom na aplicação."""
+    global _CURRENT_UI_ZOOM, _BASE_FONT_PT
+    if zoom is not None:
+        _CURRENT_UI_ZOOM = clamp_ui_zoom(zoom)
+
+    if _BASE_FONT_PT is None:
+        cur_pt = app.font().pointSizeF()
+        _BASE_FONT_PT = cur_pt if cur_pt > 0 else 10.0
+
+    scaled_font = QFont(app.font())
+    scaled_font.setPointSizeF(max(6.0, round(_BASE_FONT_PT * _CURRENT_UI_ZOOM, 1)))
+    app.setFont(scaled_font)
+
     palette = ThemePalette.for_mode(mode)
     
     # Sincroniza a paleta nativa do Qt (QPalette) para que viewports de QScrollArea,
@@ -956,6 +1171,7 @@ def apply_app_theme(app: QApplication, mode: str) -> ThemePalette:
     qpal.setColor(QPalette.ColorRole.ButtonText, tx)
     app.setPalette(qpal)
 
-    app.setStyleSheet(build_stylesheet(palette))
+    raw_qss = build_stylesheet(palette)
+    app.setStyleSheet(_scale_qss_px(raw_qss, _CURRENT_UI_ZOOM))
     return palette
 

@@ -230,7 +230,10 @@ class ProfileRepository:
         return stored == digest
 
     def has_local_pin(self) -> bool:
-        stored = self.db.fetch_scalar(
-            "SELECT pwd FROM login WHERE id = 'local_pin'", default=None
-        )
-        return bool(stored)
+        try:
+            stored = self.db.fetch_scalar(
+                "SELECT pwd FROM login WHERE id = 'local_pin'", default=None
+            )
+            return bool(stored)
+        except Exception:
+            return False

@@ -73,21 +73,11 @@ class ConfiguracoesView(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         content = QWidget()
+        content.setObjectName("ConfiguracoesHost")
+        content.setStyleSheet("QWidget#ConfiguracoesHost { background: transparent; }")
         root = QVBoxLayout(content)
-        root.setContentsMargins(24, 20, 24, 32)
+        root.setContentsMargins(0, 4, 0, 24)
         root.setSpacing(16)
-
-        title_box = QVBoxLayout()
-        title_box.setSpacing(4)
-        lbl_title = QLabel("Configurações")
-        lbl_title.setObjectName("SectionTitle")
-        lbl_sub = QLabel(
-            "Gerenciamento de banco de dados, cópias de segurança (backup) e perfis de uso"
-        )
-        lbl_sub.setObjectName("MutedText")
-        title_box.addWidget(lbl_title)
-        title_box.addWidget(lbl_sub)
-        root.addLayout(title_box)
 
         # ------------------------------------------------------------------ #
         # Card 1: Banco de Dados SQLite

@@ -30,7 +30,7 @@ def main() -> int:
     app.setFont(QFont(font_family, 10))
 
     settings = AppSettings.load()
-    apply_app_theme(app, settings.theme_mode)
+    apply_app_theme(app, settings.theme_mode, zoom=settings.ui_zoom_factor)
 
     db = ConnectionManager(settings=settings, auto_connect=True)
     backup_service = BackupSchedulerService(

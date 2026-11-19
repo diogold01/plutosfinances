@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -75,10 +76,12 @@ from app.ui.components import (
     Badge,
     DonutProgressRing,
     EmptyStateWidget,
+    FilterCountPill,
     InstallmentMiniBar,
     KpiCard,
     SegmentedBar,
     SideDrawer,
+    TimelineStepMarker,
 )
 from app.ui.icons import get_line_icon, get_line_pixmap
 from app.ui.style_manager import PT_BR_MONTHS, format_currency, format_date_br
@@ -1267,6 +1270,572 @@ class TransferDialog(QDialog):
         self.accept()
 
 
+class UnifiedTransactionDialog(QDialog):
+    """Modal único compacto estilo Artha para Receita, Despesa (Conta/Cartão) e Transferência."""
+
+    def __init__(
+        self,
+        db: ConnectionManager,
+        profile_id: str,
+        default_date: date,
+        initial_kind: str = KIND_DESPESA,
+        card_mode: bool = False,
+        preselect_card_id: Optional[str] = None,
+        occurrence: Optional[Occurrence] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.db = db
+        self.profile_id = profile_id
+        self.default_date = default_date
+        self.occurrence = occurrence
+        self.card_mode = card_mode
+        self.preselect_card_id = preselect_card_id
+        self.custom_splits: List[SplitDTO] = []
+
+        self.account_repo = AccountRepository(db)
+        self.card_service = CreditCardService(db, TransactionService(db))
+        self.cat_repo = CategoryRepository(db)
+        self.tag_repo = TagRepository(db)
+
+        self._accounts = self.account_repo.list_accounts(profile_id)
+        self._cards = self.card_service.list_cards(profile_id)
+        self._tags = self.tag_repo.list_tags(profile_id)
+
+        start_kind = occurrence.kind if occurrence is not None else initial_kind
+        self._kind: str = start_kind if start_kind in (KIND_RECEITA, KIND_DESPESA, KIND_TRANSFERENCIA) else KIND_DESPESA
+
+        self.setWindowTitle("Editar Lançamento" if occurrence is not None else "Novo Lançamento")
+        self.setMinimumWidth(470)
+        self.setMaximumWidth(520)
+
+        self._build_ui()
+        if occurrence is not None:
+            self._populate(occurrence)
+        else:
+            self._set_kind(self._kind)
+
+    def _build_ui(self) -> None:
+        from app.config.theme_palette import ThemePalette
+
+        pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(12)
+
+        # Barra segmentada superior: Receita | Despesa | Transferência
+        seg_box = QFrame()
+        seg_box.setStyleSheet(
+            f"QFrame {{ background-color: {pal.app_background}; border: 1px solid {pal.border_subtle}; border-radius: 10px; }}"
+        )
+        seg_lay = QHBoxLayout(seg_box)
+        seg_lay.setContentsMargins(4, 4, 4, 4)
+        seg_lay.setSpacing(4)
+
+        self._kind_btns: Dict[str, QPushButton] = {}
+        self._kind_group = QButtonGroup(self)
+        self._kind_group.setExclusive(True)
+        for k_key, k_label, k_ico in (
+            (KIND_RECEITA, "Receita", "arrow-up"),
+            (KIND_DESPESA, "Despesa", "arrow-down"),
+            (KIND_TRANSFERENCIA, "Transferência", "swap"),
+        ):
+            b = QPushButton(k_label)
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setIcon(get_line_icon(k_ico, size=14))
+            b.setFixedHeight(32)
+            b.clicked.connect(lambda _=False, kk=k_key: self._set_kind(kk))
+            self._kind_group.addButton(b)
+            self._kind_btns[k_key] = b
+            seg_lay.addWidget(b, 1)
+        root.addWidget(seg_box)
+
+        # Forma de pagamento (Despesa: Conta Bancária vs Cartão de Crédito)
+        self.pay_mode_widget = QWidget()
+        pm_lay = QVBoxLayout(self.pay_mode_widget)
+        pm_lay.setContentsMargins(0, 2, 0, 0)
+        pm_lay.setSpacing(6)
+        lbl_pm = QLabel("Forma de Pagamento")
+        lbl_pm.setObjectName("FormLabel")
+        pm_row = QHBoxLayout()
+        pm_row.setSpacing(16)
+        self.rb_conta = QRadioButton("Conta Bancária")
+        self.rb_conta.setIcon(get_line_icon("bank", size=14))
+        self.rb_cartao = QRadioButton("Cartão de Crédito")
+        self.rb_cartao.setIcon(get_line_icon("card", size=14))
+        if self.card_mode and self._cards:
+            self.rb_cartao.setChecked(True)
+        else:
+            self.rb_conta.setChecked(True)
+        self.rb_conta.toggled.connect(self._on_pay_mode_changed)
+        pm_row.addWidget(self.rb_conta)
+        pm_row.addWidget(self.rb_cartao)
+        pm_row.addStretch()
+        pm_lay.addWidget(lbl_pm)
+        pm_lay.addLayout(pm_row)
+        root.addWidget(self.pay_mode_widget)
+
+        # Valor em destaque (largura total)
+        lbl_val = QLabel("Valor *")
+        lbl_val.setObjectName("FormLabel")
+        root.addWidget(lbl_val)
+        self.sp_valor = QDoubleSpinBox()
+        self.sp_valor.setRange(0.01, 999_999_999.99)
+        self.sp_valor.setDecimals(2)
+        self.sp_valor.setPrefix("R$ ")
+        self.sp_valor.setValue(0.01 if self.occurrence else 50.00)
+        self.sp_valor.setMinimumHeight(42)
+        self.sp_valor.setStyleSheet("font-size: 16px; font-weight: 600;")
+        root.addWidget(self.sp_valor)
+
+        # Grid 2 colunas para Datas, Descrição/Categoria, Origem/Destino, Conta/Status
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+
+        self.lbl_dt_evt = QLabel("Data Lançamento *")
+        self.lbl_dt_evt.setObjectName("FormLabel")
+        self.lbl_dt_venc = QLabel("Data Vencimento *")
+        self.lbl_dt_venc.setObjectName("FormLabel")
+        grid.addWidget(self.lbl_dt_evt, 0, 0)
+        grid.addWidget(self.lbl_dt_venc, 0, 1)
+
+        self.dt_evento = QDateEdit(_py_to_qdate(self.default_date))
+        self.dt_evento.setCalendarPopup(True)
+        self.dt_evento.setDisplayFormat("dd/MM/yyyy")
+
+        self.dt_venc = QDateEdit(_py_to_qdate(self.default_date))
+        self.dt_venc.setCalendarPopup(True)
+        self.dt_venc.setDisplayFormat("dd/MM/yyyy")
+        grid.addWidget(self.dt_evento, 1, 0)
+        grid.addWidget(self.dt_venc, 1, 1)
+
+        self.lbl_desc = QLabel("Descrição *")
+        self.lbl_desc.setObjectName("FormLabel")
+        self.lbl_cat = QLabel("Categoria")
+        self.lbl_cat.setObjectName("FormLabel")
+        grid.addWidget(self.lbl_desc, 2, 0)
+        grid.addWidget(self.lbl_cat, 2, 1)
+
+        self.ed_desc = QLineEdit()
+        self.ed_desc.setPlaceholderText("Ex: Almoço, Uber, Freelance...")
+        self.cb_cat = QComboBox()
+        self.cb_cat.currentIndexChanged.connect(self._on_cat_changed)
+        grid.addWidget(self.ed_desc, 3, 0)
+        grid.addWidget(self.cb_cat, 3, 1)
+
+        # Linha Origem / Destino (apenas Transferência)
+        self.lbl_orig = QLabel("Conta de Origem *")
+        self.lbl_orig.setObjectName("FormLabel")
+        self.lbl_dest = QLabel("Conta de Destino *")
+        self.lbl_dest.setObjectName("FormLabel")
+        self.cb_origem = QComboBox()
+        self.cb_destino = QComboBox()
+        for acc in self._accounts:
+            self.cb_origem.addItem(acc.name, acc.id)
+            self.cb_destino.addItem(acc.name, acc.id)
+        if self.cb_destino.count() > 1:
+            self.cb_destino.setCurrentIndex(1)
+        grid.addWidget(self.lbl_orig, 4, 0)
+        grid.addWidget(self.lbl_dest, 4, 1)
+        grid.addWidget(self.cb_origem, 5, 0)
+        grid.addWidget(self.cb_destino, 5, 1)
+
+        root.addLayout(grid)
+
+        # Tags compactas (largura total)
+        lbl_tags = QLabel("Tags")
+        lbl_tags.setObjectName("FormLabel")
+        root.addWidget(lbl_tags)
+
+        self.btn_tags_picker = QPushButton("Tags (opcional)")
+        self.btn_tags_picker.setObjectName("SecondaryButton")
+        self.btn_tags_picker.setIcon(get_line_icon("tag", size=14))
+        self.btn_tags_picker.setStyleSheet("text-align: left; padding: 7px 12px;")
+        self._tag_menu = QMenu(self.btn_tags_picker)
+        self._tag_actions: List[Tuple[str, object]] = []
+        for t in self._tags:
+            act = self._tag_menu.addAction(create_color_badge_icon(t.color_hex, "#", size=14), t.name)
+            act.setCheckable(True)
+            act.toggled.connect(self._update_tags_button_label)
+            self._tag_actions.append((t.id, act))
+        if not self._tags:
+            empty_act = self._tag_menu.addAction("Nenhuma tag cadastrada")
+            empty_act.setEnabled(False)
+        self.btn_tags_picker.setMenu(self._tag_menu)
+        root.addWidget(self.btn_tags_picker)
+
+        # Card Tipo de Lançamento (igual Imagem 2)
+        rec_box = QFrame()
+        rec_box.setStyleSheet(
+            f"QFrame {{ background-color: {pal.app_background}; border: 1px solid {pal.border_subtle}; border-radius: 10px; }}"
+        )
+        rb_lay = QVBoxLayout(rec_box)
+        rb_lay.setContentsMargins(12, 10, 12, 10)
+        rb_lay.setSpacing(8)
+        lbl_rec = QLabel("Tipo de lançamento")
+        lbl_rec.setObjectName("FormLabel")
+        lbl_rec.setStyleSheet("border: none; background: transparent;")
+        rb_lay.addWidget(lbl_rec)
+
+        self.cb_rec = QComboBox()
+        self.cb_rec.addItem("Simples (único lançamento)", REC_UNICA)
+        self.cb_rec.addItem("Parcelada (Ex.: 2x a 120x)", REC_PARCELADA)
+        self.cb_rec.addItem("Fixa Mensal (Recorrente)", "FIXED")
+        self.cb_rec.currentIndexChanged.connect(self._on_rec_changed)
+        rb_lay.addWidget(self.cb_rec)
+
+        self.parc_opts_row = QWidget()
+        self.parc_opts_row.setStyleSheet("background: transparent; border: none;")
+        po_lay = QHBoxLayout(self.parc_opts_row)
+        po_lay.setContentsMargins(0, 0, 0, 0)
+        po_lay.setSpacing(10)
+        self.sp_parcelas = QSpinBox()
+        self.sp_parcelas.setRange(2, 240)
+        self.sp_parcelas.setValue(2)
+        self.sp_parcelas.setSuffix(" parcelas")
+        self.chk_val_parcela = QCheckBox("Valor já é de cada parcela")
+        po_lay.addWidget(self.sp_parcelas)
+        po_lay.addWidget(self.chk_val_parcela, 1)
+        rb_lay.addWidget(self.parc_opts_row)
+
+        if self.occurrence is not None:
+            self.cb_scope = QComboBox()
+            if self.occurrence.is_installment:
+                self.cb_scope.addItem("Toda a série (todas as parcelas)", "all")
+                self.cb_scope.addItem("Somente esta parcela", "this")
+            elif self.occurrence.is_recurring:
+                self.cb_scope.addItem("Toda a série (todas as fixas)", "all")
+                self.cb_scope.addItem("Somente esta ocorrência", "this")
+            else:
+                self.cb_scope.addItem("Somente esta ocorrência", "this")
+            rb_lay.addWidget(self.cb_scope)
+
+        root.addWidget(rec_box)
+
+        # Conta / Cartão + Status (2 colunas no rodapé do formulário, igual Imagem 2)
+        bot_grid = QGridLayout()
+        bot_grid.setHorizontalSpacing(12)
+        bot_grid.setVerticalSpacing(6)
+
+        self.lbl_source = QLabel("Conta")
+        self.lbl_source.setObjectName("FormLabel")
+        self.lbl_status = QLabel("Status")
+        self.lbl_status.setObjectName("FormLabel")
+        bot_grid.addWidget(self.lbl_source, 0, 0)
+        bot_grid.addWidget(self.lbl_status, 0, 1)
+
+        self.cb_conta = QComboBox()
+        for acc in self._accounts:
+            self.cb_conta.addItem(acc.name, acc.id)
+
+        self.cb_cartao = QComboBox()
+        for idx, c in enumerate(self._cards):
+            card_icon = get_card_brand_icon(brand_icon_filename(c.brand_key), size=16)
+            self.cb_cartao.addItem(card_icon, f"{c.nome} (Vence {c.dia_venc})", c.id)
+            if self.preselect_card_id and c.id == self.preselect_card_id:
+                self.cb_cartao.setCurrentIndex(idx)
+
+        self.cb_status = QComboBox()
+        self.cb_status.addItem("Pago", True)
+        self.cb_status.addItem("Pendente", False)
+
+        bot_grid.addWidget(self.cb_conta, 1, 0)
+        bot_grid.addWidget(self.cb_cartao, 1, 0)
+        bot_grid.addWidget(self.cb_status, 1, 1)
+        root.addLayout(bot_grid)
+
+        # Toggle discreto de opções extras (Subcategoria, Observações, Terceiro, Rateio)
+        self.btn_more_opts = QPushButton("+ Subcategoria, observações e rateio")
+        self.btn_more_opts.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; color: {pal.primary}; font-size: 12px; font-weight: 600; text-align: left; padding: 2px 0; }}"
+        )
+        self.btn_more_opts.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_more_opts.clicked.connect(self._toggle_more_opts)
+        root.addWidget(self.btn_more_opts)
+
+        self.more_widget = QWidget()
+        mw_lay = QVBoxLayout(self.more_widget)
+        mw_lay.setContentsMargins(0, 0, 0, 0)
+        mw_lay.setSpacing(8)
+        m_grid = QGridLayout()
+        m_grid.setHorizontalSpacing(12)
+        m_grid.setVerticalSpacing(6)
+        lbl_sub = QLabel("Subcategoria")
+        lbl_sub.setObjectName("FormLabel")
+        lbl_obs = QLabel("Observações")
+        lbl_obs.setObjectName("FormLabel")
+        m_grid.addWidget(lbl_sub, 0, 0)
+        m_grid.addWidget(lbl_obs, 0, 1)
+        self.cb_sub = QComboBox()
+        self.ed_obs = QLineEdit()
+        self.ed_obs.setPlaceholderText("Observações (opcional)")
+        m_grid.addWidget(self.cb_sub, 1, 0)
+        m_grid.addWidget(self.ed_obs, 1, 1)
+        mw_lay.addLayout(m_grid)
+
+        self.split_extra_row = QWidget()
+        se_lay = QHBoxLayout(self.split_extra_row)
+        se_lay.setContentsMargins(0, 0, 0, 0)
+        se_lay.setSpacing(8)
+        self.btn_split = QPushButton("Rateio Multi-Categoria")
+        self.btn_split.setObjectName("SecondaryButton")
+        self.btn_split.clicked.connect(self._open_split_dialog)
+        self.chk_terceiro = QCheckBox("Terceiro")
+        self.ed_terceiro_pessoa = QLineEdit()
+        self.ed_terceiro_pessoa.setPlaceholderText("Pessoa...")
+        self.ed_terceiro_pessoa.setEnabled(False)
+        self.chk_terceiro.toggled.connect(self.ed_terceiro_pessoa.setEnabled)
+        se_lay.addWidget(self.btn_split)
+        se_lay.addWidget(self.chk_terceiro)
+        se_lay.addWidget(self.ed_terceiro_pessoa, 1)
+        mw_lay.addWidget(self.split_extra_row)
+        self.more_widget.setVisible(False)
+        root.addWidget(self.more_widget)
+
+        # Botões inferiores: Cancelar + Criar/Salvar
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("SecondaryButton")
+        btn_cancel.clicked.connect(self.reject)
+        self.btn_save = QPushButton("Salvar" if self.occurrence else "Criar")
+        self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save.setMinimumWidth(96)
+        self.btn_save.setFixedHeight(36)
+        self.btn_save.setDefault(True)
+        self.btn_save.clicked.connect(self._validate_and_accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(self.btn_save)
+        root.addLayout(btn_row)
+
+    def _toggle_more_opts(self) -> None:
+        vis = not self.more_widget.isVisible()
+        self.more_widget.setVisible(vis)
+        self.btn_more_opts.setText(
+            "− Ocultar opções extras" if vis else "+ Subcategoria, observações e rateio"
+        )
+
+    def _update_tags_button_label(self) -> None:
+        names = [act.text() for _, act in self._tag_actions if act.isChecked()]
+        if names:
+            self.btn_tags_picker.setText(", ".join(f"#{n}" for n in names))
+        else:
+            self.btn_tags_picker.setText("Tags (opcional)")
+
+    def selected_tag_ids(self) -> List[str]:
+        return [tid for tid, act in self._tag_actions if act.isChecked()]
+
+    def selected_kind(self) -> str:
+        return self._kind
+
+    def _set_kind(self, kind_key: str) -> None:
+        self._kind = kind_key
+        from app.config.theme_palette import ThemePalette
+
+        pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+        kind_styles = {
+            KIND_RECEITA: (INCOME_GREEN, pal.income_badge_bg),
+            KIND_DESPESA: (EXPENSE_RED, pal.expense_badge_bg),
+            KIND_TRANSFERENCIA: (pal.primary, pal.primary_active_pill),
+        }
+        for k, btn in self._kind_btns.items():
+            fg, bg = kind_styles[k]
+            if k == kind_key:
+                btn.setChecked(True)
+                btn.setStyleSheet(
+                    f"QPushButton {{ background-color: {bg}; color: {fg}; border: none; border-radius: 7px; font-weight: 700; }}"
+                )
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: transparent; color: {pal.text_secondary}; border: none; border-radius: 7px; font-weight: 500; }}"
+                )
+
+        fg_active, _ = kind_styles[kind_key]
+        self.btn_save.setStyleSheet(
+            f"QPushButton {{ background-color: {fg_active}; color: #FFFFFF; border: none; border-radius: 8px; font-weight: 600; padding: 8px 18px; }}"
+        )
+
+        is_exp = kind_key == KIND_DESPESA
+        is_inc = kind_key == KIND_RECEITA
+        is_tr = kind_key == KIND_TRANSFERENCIA
+
+        self.pay_mode_widget.setVisible(is_exp)
+        self.lbl_dt_evt.setVisible(is_exp)
+        self.dt_evento.setVisible(is_exp)
+        self.lbl_dt_venc.setText(
+            "Data Vencimento *" if is_exp else ("Data Prevista *" if is_inc else "Data da Transferência *")
+        )
+
+        self.lbl_cat.setVisible(not is_tr)
+        self.cb_cat.setVisible(not is_tr)
+        self.lbl_orig.setVisible(is_tr)
+        self.cb_origem.setVisible(is_tr)
+        self.lbl_dest.setVisible(is_tr)
+        self.cb_destino.setVisible(is_tr)
+
+        self.lbl_source.setVisible(not is_tr)
+        if is_tr:
+            self.cb_conta.setVisible(False)
+            self.cb_cartao.setVisible(False)
+        else:
+            self._on_pay_mode_changed()
+
+        self.btn_tags_picker.setVisible(not is_tr)
+        self.split_extra_row.setVisible(is_exp)
+        self.btn_more_opts.setVisible(not is_tr)
+        if is_tr and not self.ed_desc.text().strip():
+            self.ed_desc.setText("Transferência entre contas")
+
+        self.cb_status.blockSignals(True)
+        cur_st = bool(self.cb_status.currentData())
+        self.cb_status.clear()
+        if is_inc:
+            self.cb_status.addItem("Recebido", True)
+            self.cb_status.addItem("Pendente", False)
+        elif is_tr:
+            self.cb_status.addItem("Efetivada", True)
+            self.cb_status.addItem("Pendente", False)
+        else:
+            self.cb_status.addItem("Pago", True)
+            self.cb_status.addItem("Pendente", False)
+        idx_st = self.cb_status.findData(cur_st)
+        self.cb_status.setCurrentIndex(idx_st if idx_st >= 0 else 0)
+        self.cb_status.blockSignals(False)
+
+        if not is_tr:
+            cats = self.cat_repo.list_categories("DESPESA" if is_exp else "RECEITA", self.profile_id)
+            self.cb_cat.blockSignals(True)
+            self.cb_cat.clear()
+            for c in cats:
+                self.cb_cat.addItem(create_color_badge_icon(c.color_hex, c.name[:1], size=16), c.name, c.id)
+            self.cb_cat.blockSignals(False)
+            self._categories = cats
+            self._on_cat_changed()
+
+        self._on_rec_changed()
+
+    def _on_pay_mode_changed(self) -> None:
+        is_card = self._kind == KIND_DESPESA and self.rb_cartao.isChecked()
+        self.cb_cartao.setVisible(is_card)
+        self.cb_cartao.setEnabled(is_card)
+        self.cb_conta.setVisible(not is_card and self._kind != KIND_TRANSFERENCIA)
+        self.cb_conta.setEnabled(not is_card)
+        self.lbl_source.setText("Cartão" if is_card else "Conta")
+        if is_card:
+            idx_p = self.cb_status.findData(False)
+            if idx_p >= 0 and self.occurrence is None:
+                self.cb_status.setCurrentIndex(idx_p)
+            self.cb_status.setEnabled(False)
+        else:
+            self.cb_status.setEnabled(True)
+
+    def _on_cat_changed(self) -> None:
+        self.cb_sub.clear()
+        cat_id = self.cb_cat.currentData()
+        if not cat_id:
+            return
+        for c in getattr(self, "_categories", []):
+            if c.id == cat_id:
+                self.cb_sub.addItem("(Geral / Sem subcategoria)", None)
+                for s in c.subcategories:
+                    self.cb_sub.addItem(s.name, s.id)
+                break
+
+    def _on_rec_changed(self) -> None:
+        is_parc = self.cb_rec.currentData() == REC_PARCELADA and self.occurrence is None
+        self.parc_opts_row.setVisible(is_parc)
+
+    def _open_split_dialog(self) -> None:
+        dlg = SplitEditorDialog(
+            cat_repo=self.cat_repo,
+            profile_id=self.profile_id,
+            total_amount=float(self.sp_valor.value()),
+            existing_splits=self.custom_splits,
+            parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.custom_splits = dlg.splits
+            self.cb_cat.setEnabled(len(self.custom_splits) <= 1)
+
+    def _populate(self, occ: Occurrence) -> None:
+        self._set_kind(occ.kind)
+        self.sp_valor.setValue(occ.valor)
+        self.ed_desc.setText(occ.descricao)
+        self.dt_venc.setDate(_py_to_qdate(occ.data_vencimento))
+        self.dt_evento.setDate(_py_to_qdate(occ.data_evento or occ.data_vencimento))
+        if occ.kind == KIND_DESPESA:
+            if occ.is_card:
+                self.rb_cartao.setChecked(True)
+                idx_c = self.cb_cartao.findData(occ.id_cartao)
+                if idx_c >= 0:
+                    self.cb_cartao.setCurrentIndex(idx_c)
+            else:
+                self.rb_conta.setChecked(True)
+                idx_a = self.cb_conta.findData(occ.id_conta)
+                if idx_a >= 0:
+                    self.cb_conta.setCurrentIndex(idx_a)
+            self._on_pay_mode_changed()
+        elif occ.kind == KIND_RECEITA:
+            idx_a = self.cb_conta.findData(occ.id_conta)
+            if idx_a >= 0:
+                self.cb_conta.setCurrentIndex(idx_a)
+        else:
+            idx_o = self.cb_origem.findData(occ.id_conta)
+            if idx_o >= 0:
+                self.cb_origem.setCurrentIndex(idx_o)
+            idx_d = self.cb_destino.findData(occ.id_conta_destino)
+            if idx_d >= 0:
+                self.cb_destino.setCurrentIndex(idx_d)
+
+        if occ.id_categoria:
+            idx_cat = self.cb_cat.findData(occ.id_categoria)
+            if idx_cat >= 0:
+                self.cb_cat.setCurrentIndex(idx_cat)
+        if occ.id_subcategoria:
+            idx_sub = self.cb_sub.findData(occ.id_subcategoria)
+            if idx_sub >= 0:
+                self.cb_sub.setCurrentIndex(idx_sub)
+
+        if occ.is_installment:
+            self.cb_rec.setCurrentIndex(1)
+            self.cb_rec.setEnabled(False)
+        elif occ.is_fixed:
+            self.cb_rec.setCurrentIndex(2)
+        else:
+            self.cb_rec.setCurrentIndex(0)
+
+        idx_st = self.cb_status.findData(bool(occ.efetivada))
+        if idx_st >= 0:
+            self.cb_status.setCurrentIndex(idx_st)
+
+        occ_tag_ids = {tid for tid, _, _ in occ.tags}
+        for tid, act in self._tag_actions:
+            act.setChecked(tid in occ_tag_ids)
+        self._update_tags_button_label()
+        self.ed_obs.setText(occ.obs)
+        if occ.splits:
+            self.custom_splits = list(occ.splits)
+
+    def _validate_and_accept(self) -> None:
+        if not self.ed_desc.text().strip():
+            QMessageBox.warning(self, "Campo obrigatório", "Informe a descrição do lançamento.")
+            self.ed_desc.setFocus()
+            return
+        if self._kind == KIND_DESPESA and self.rb_cartao.isChecked() and self.cb_cartao.count() == 0:
+            QMessageBox.warning(self, "Sem cartão cadastrado", "Cadastre um cartão de crédito primeiro.")
+            return
+        if self._kind == KIND_TRANSFERENCIA:
+            orig = self.cb_origem.currentData()
+            dest = self.cb_destino.currentData()
+            if not orig or not dest or str(orig) == str(dest):
+                QMessageBox.warning(self, "Contas inválidas", "Selecione duas contas distintas para origem e destino.")
+                return
+        self.accept()
+
+
 class TransacoesView(QWidget):
     """
     Tela principal de Transações / Extrato Mensal padronizada com o protótipo Plutos Redesign:
@@ -1302,99 +1871,63 @@ class TransacoesView(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(20, 12, 20, 12)
+        root.setSpacing(10)
 
-        # 1. Cabeçalho + Botões de Ação (Apenas 1 primário)
+        # 1. Cabeçalho estilo Artha (Título + Exportar | Importar | + Novo lançamento)
         header_row = QHBoxLayout()
         title_col = QVBoxLayout()
-        self.lbl_title = QLabel("Transações")
+        title_col.setSpacing(2)
+        self.lbl_title = QLabel("Lançamentos")
         self.lbl_title.setObjectName("SectionTitle")
-        self.lbl_subtitle = QLabel(
-            "Extrato mensal, compras no cartão, parcelamentos e fixas"
-        )
+        self.lbl_subtitle = QLabel("Gerencie suas receitas e despesas")
         self.lbl_subtitle.setObjectName("MutedText")
         title_col.addWidget(self.lbl_title)
         title_col.addWidget(self.lbl_subtitle)
         header_row.addLayout(title_col)
         header_row.addStretch()
 
-        # Botão Primário: Nova Despesa
-        self.btn_new_expense = QPushButton("Nova Despesa")
+        self.btn_export_sheet = QPushButton("Exportar")
+        self.btn_export_sheet.setObjectName("SecondaryButton")
+        self.btn_export_sheet.setIcon(get_line_icon("download", size=15))
+        self.btn_export_sheet.clicked.connect(self.quick_export_spreadsheet)
+
+        self.btn_import_sheet = QPushButton("Importar")
+        self.btn_import_sheet.setObjectName("SecondaryButton")
+        self.btn_import_sheet.setIcon(get_line_icon("upload", size=15))
+        self.btn_import_sheet.clicked.connect(self.quick_import_spreadsheet)
+
+        self.btn_new_expense = QPushButton("Novo lançamento")
         self.btn_new_expense.setObjectName("PrimaryButton")
         self.btn_new_expense.setIcon(get_line_icon("plus", color="#FFFFFF", size=16))
-        self.btn_new_expense.clicked.connect(lambda: self.open_new_expense_dialog(False))
+        self.btn_new_expense.clicked.connect(lambda: self.open_new_transaction_dialog(KIND_DESPESA))
 
-        # Ações Secundárias Discretas
+        # Botões legados mantidos ocultos para compatibilidade de atalhos/testes
         self.btn_new_card_exp = QPushButton("Cartão")
         self.btn_new_card_exp.setObjectName("SecondaryButton")
-        self.btn_new_card_exp.setToolTip("Nova despesa no cartão de crédito")
-        self.btn_new_card_exp.setIcon(get_line_icon("card", size=15))
-        self.btn_new_card_exp.clicked.connect(lambda: self.open_new_expense_dialog(True))
-
+        self.btn_new_card_exp.clicked.connect(lambda: self.open_new_transaction_dialog(KIND_DESPESA, card_mode=True))
+        self.btn_new_card_exp.setVisible(False)
         self.btn_new_income = QPushButton("Receita")
         self.btn_new_income.setObjectName("SecondaryButton")
-        self.btn_new_income.setToolTip("Nova receita")
-        self.btn_new_income.setIcon(get_line_icon("plus", size=15))
-        self.btn_new_income.clicked.connect(self.open_new_income_dialog)
-
+        self.btn_new_income.clicked.connect(lambda: self.open_new_transaction_dialog(KIND_RECEITA))
+        self.btn_new_income.setVisible(False)
         self.btn_new_transfer = QPushButton("Transferência")
         self.btn_new_transfer.setObjectName("SecondaryButton")
-        self.btn_new_transfer.setToolTip("Nova transferência entre contas")
-        self.btn_new_transfer.setIcon(get_line_icon("swap", size=15))
-        self.btn_new_transfer.clicked.connect(self.open_new_transfer_dialog)
+        self.btn_new_transfer.clicked.connect(lambda: self.open_new_transaction_dialog(KIND_TRANSFERENCIA))
+        self.btn_new_transfer.setVisible(False)
 
+        header_row.addWidget(self.btn_export_sheet)
+        header_row.addWidget(self.btn_import_sheet)
         header_row.addWidget(self.btn_new_expense)
-        header_row.addWidget(self.btn_new_card_exp)
-        header_row.addWidget(self.btn_new_income)
-        header_row.addWidget(self.btn_new_transfer)
         root.addLayout(header_row)
 
-        # 2. Cards KPI Superiores com micro-ícone à direita e tint semântico
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(12)
-        self.card_prev, self.lbl_prev_val, self.lbl_prev_sub = self._make_kpi_card(
-            "Saldo Anterior", PRIMARY_BLUE, icon_name="wallet", tint=None
-        )
-        self.card_inc, self.lbl_inc_val, self.lbl_inc_sub = self._make_kpi_card(
-            "Receitas", INCOME_GREEN, icon_name="arrow-up", tint="positive"
-        )
-        self.card_exp, self.lbl_exp_val, self.lbl_exp_sub = self._make_kpi_card(
-            "Despesas", EXPENSE_RED, icon_name="arrow-down", tint="negative"
-        )
-        self.card_res, self.lbl_res_val, self.lbl_res_sub = self._make_kpi_card(
-            "Resultado", PRIMARY_BLUE, icon_name="chart", tint="info"
-        )
-        kpi_row.addWidget(self.card_prev, 1)
-        kpi_row.addWidget(self.card_inc, 1)
-        kpi_row.addWidget(self.card_exp, 1)
-        kpi_row.addWidget(self.card_res, 1)
-        root.addLayout(kpi_row)
-
-        # 3. Barra Única Compacta: Pílulas + Fonte + Modo (Feed/Tabela) + Filtros Avançados
+        # 2. Barra Única Limpa: Fonte + Busca Rápida + Feed/Tabela + Filtros Avançados (Imagem 3)
         filter_bar = QFrame()
         filter_bar.setObjectName("CardSurface")
         f_lay = QHBoxLayout(filter_bar)
-        f_lay.setContentsMargins(12, 8, 12, 8)
+        f_lay.setContentsMargins(10, 6, 10, 6)
         f_lay.setSpacing(8)
 
-        for p_key, p_label in (
-            ("ALL", "Tudo"),
-            (KIND_RECEITA, "Receitas"),
-            (KIND_DESPESA, "Despesas"),
-            (KIND_TRANSFERENCIA, "Transferências"),
-        ):
-            chip = QPushButton(f"{p_label} 0")
-            chip.setObjectName("CountPillChip")
-            chip.setProperty("active", p_key == "ALL")
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.clicked.connect(lambda _=False, k=p_key: self._on_count_pill_clicked(k))
-            f_lay.addWidget(chip)
-            self.count_pills[p_key] = chip
-
-        f_lay.addStretch()
-
-        # Filtros internos mantidos para sincronização com pílulas e Filtros Avançados
         self.cb_filter_kind = QComboBox()
         self.cb_filter_kind.addItem("Todos os Tipos", "ALL")
         self.cb_filter_kind.addItem("Despesas", KIND_DESPESA)
@@ -1415,26 +1948,73 @@ class TransacoesView(QWidget):
         self.cb_filter_status.currentIndexChanged.connect(lambda _: self.refresh_data())
         self.cb_filter_status.setVisible(False)
 
-        self.lbl_count_badge = QLabel("0 lançamentos")
-        self.lbl_count_badge.setObjectName("MutedText")
-        self.lbl_count_badge.setStyleSheet("font-size: 12px; font-weight: 500; padding: 0 4px;")
-        f_lay.addWidget(self.lbl_count_badge)
+        f_lay.addStretch()
+
+        self.ed_quick_search = QLineEdit()
+        self.ed_quick_search.setPlaceholderText("Buscar descrição, categoria, valor...")
+        self.ed_quick_search.setMinimumWidth(230)
+        self.ed_quick_search.setClearButtonEnabled(True)
+        self.ed_quick_search.textChanged.connect(lambda _: self.refresh_data())
+        f_lay.addWidget(self.ed_quick_search)
 
         self.seg_view_mode = SegmentedBar(
-            [("feed", "Feed por Data"), ("table", "Tabela")],
+            [("feed", "Feed"), ("table", "Tabela")],
             active_key="feed",
         )
         self.seg_view_mode.changed.connect(self.set_view_mode)
         f_lay.addWidget(self.seg_view_mode)
 
-        self.btn_adv_filters = QPushButton("Filtros")
+        self.btn_adv_filters = QPushButton("")
         self.btn_adv_filters.setObjectName("SecondaryButton")
         self.btn_adv_filters.setToolTip("Filtros Avançados")
         self.btn_adv_filters.setIcon(get_line_icon("filter", size=15))
+        self.btn_adv_filters.setFixedSize(34, 34)
         self.btn_adv_filters.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_adv_filters.clicked.connect(self.open_advanced_filters_drawer)
         f_lay.addWidget(self.btn_adv_filters)
         root.addWidget(filter_bar)
+
+        # 3. Cards KPI Superiores (Receitas | Despesas | Resultado | Saldo Anterior)
+        kpi_row = QHBoxLayout()
+        kpi_row.setSpacing(12)
+        self.card_inc, self.lbl_inc_val, self.lbl_inc_sub = self._make_kpi_card(
+            "Receitas", INCOME_GREEN, icon_name="arrow-up", tint="positive"
+        )
+        self.card_exp, self.lbl_exp_val, self.lbl_exp_sub = self._make_kpi_card(
+            "Despesas", EXPENSE_RED, icon_name="arrow-down", tint="negative"
+        )
+        self.card_res, self.lbl_res_val, self.lbl_res_sub = self._make_kpi_card(
+            "Resultado", PRIMARY_BLUE, icon_name="chart", tint="info"
+        )
+        self.card_prev, self.lbl_prev_val, self.lbl_prev_sub = self._make_kpi_card(
+            "Saldo Anterior", PRIMARY_BLUE, icon_name="wallet", tint=None
+        )
+        kpi_row.addWidget(self.card_inc, 1)
+        kpi_row.addWidget(self.card_exp, 1)
+        kpi_row.addWidget(self.card_res, 1)
+        kpi_row.addWidget(self.card_prev, 1)
+        root.addLayout(kpi_row)
+
+        # 3.1 Pílulas Contadoras Cápsula estilo Arthas (Tudo | • Receitas | • Despesas | • Transferências)
+        pills_row = QHBoxLayout()
+        pills_row.setSpacing(8)
+        for p_key, p_label, p_dot in (
+            ("ALL", "Tudo", None),
+            (KIND_RECEITA, "Receitas", "#10B981"),
+            (KIND_DESPESA, "Despesas", "#DC2626"),
+            (KIND_TRANSFERENCIA, "Transferências", "#3B82F6"),
+        ):
+            chip = FilterCountPill(f"{p_label} 0", dot_color=p_dot)
+            chip.setProperty("active", p_key == "ALL")
+            chip.clicked.connect(lambda _=False, k=p_key: self._on_count_pill_clicked(k))
+            pills_row.addWidget(chip)
+            self.count_pills[p_key] = chip
+        self.lbl_count_badge = QLabel("0 lançamentos")
+        self.lbl_count_badge.setObjectName("MutedText")
+        self.lbl_count_badge.setStyleSheet("font-size: 12px; font-weight: 500; padding-left: 6px;")
+        pills_row.addWidget(self.lbl_count_badge)
+        pills_row.addStretch()
+        root.addLayout(pills_row)
 
         # 4. Área Principal (Tabela / Feed Agrupado à esquerda + Drawers Laterais à direita)
         body_h = QHBoxLayout()
@@ -1493,14 +2073,21 @@ class TransacoesView(QWidget):
 
         self.stack.addWidget(self.table)
 
-        # Feed Agrupado por Data (Estilo Artha)
+        # Feed Agrupado por Data em container contínuo plano (Estilo Artha - sem zoom)
+        from app.config.theme_palette import ThemePalette
+
+        pal_init = ThemePalette.for_mode(self.db.settings.theme_mode)
         self.feed_scroll = QScrollArea()
         self.feed_scroll.setWidgetResizable(True)
         self.feed_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.feed_scroll.setStyleSheet(
+            f"QScrollArea {{ background-color: {pal_init.surface_card}; border: 1px solid {pal_init.border_subtle}; border-radius: 10px; }}"
+        )
         self.feed_host = QWidget()
+        self.feed_host.setStyleSheet("background: transparent;")
         self.feed_layout = QVBoxLayout(self.feed_host)
-        self.feed_layout.setContentsMargins(0, 2, 4, 8)
-        self.feed_layout.setSpacing(8)
+        self.feed_layout.setContentsMargins(0, 0, 0, 0)
+        self.feed_layout.setSpacing(0)
         self.feed_layout.addStretch()
         self.feed_scroll.setWidget(self.feed_host)
         self.stack.addWidget(self.feed_scroll)
@@ -1509,71 +2096,44 @@ class TransacoesView(QWidget):
             title="Nenhum lançamento no período",
             subtitle="Não há receitas, despesas ou transferências registradas para os filtros selecionados.",
             icon_name="list",
-            action_text="+ Nova Despesa",
-            action_callback=lambda: self.open_new_expense_dialog(False),
+            action_text="+ Novo lançamento",
+            action_callback=lambda: self.open_new_transaction_dialog(KIND_DESPESA),
         )
         self.stack.addWidget(self.empty_widget)
 
         left_col.addWidget(self.stack, stretch=1)
 
-        # 5. Barra Inferior de Ações Discretas
-        act_bar = QHBoxLayout()
+        # Botões de ação mantidos como atributos ocultos (ações ficam no menu ⋮ de cada linha e context menu)
         self.btn_toggle_eff = QPushButton("Confirmar / Desfazer")
-        self.btn_toggle_eff.setObjectName("SecondaryButton")
-        self.btn_toggle_eff.setIcon(get_line_icon("check", size=16))
         self.btn_toggle_eff.clicked.connect(self.toggle_selected_effective)
-        self.btn_toggle_eff.setEnabled(False)
-
+        self.btn_toggle_eff.setVisible(False)
         self.btn_edit = QPushButton("Editar")
-        self.btn_edit.setObjectName("SecondaryButton")
-        self.btn_edit.setIcon(get_line_icon("edit", size=16))
         self.btn_edit.clicked.connect(self.edit_selected_occurrence)
-        self.btn_edit.setEnabled(False)
-
+        self.btn_edit.setVisible(False)
         self.btn_delete = QPushButton("Excluir")
         self.btn_delete.setObjectName("SecondaryButton")
-        self.btn_delete.setIcon(get_line_icon("trash", size=16))
         self.btn_delete.clicked.connect(self.delete_selected_occurrence)
-        self.btn_delete.setEnabled(False)
-
-        act_bar.addWidget(self.btn_toggle_eff)
-        act_bar.addWidget(self.btn_edit)
-        act_bar.addWidget(self.btn_delete)
-        act_bar.addStretch()
-
-        self.btn_import_sheet = QPushButton("Importar")
-        self.btn_import_sheet.setObjectName("SecondaryButton")
-        self.btn_import_sheet.setIcon(get_line_icon("upload", size=16))
-        self.btn_import_sheet.clicked.connect(self.quick_import_spreadsheet)
-
-        self.btn_export_sheet = QPushButton("Exportar")
-        self.btn_export_sheet.setObjectName("SecondaryButton")
-        self.btn_export_sheet.setIcon(get_line_icon("download", size=16))
-        self.btn_export_sheet.clicked.connect(self.quick_export_spreadsheet)
-
-        act_bar.addWidget(self.btn_import_sheet)
-        act_bar.addWidget(self.btn_export_sheet)
-        left_col.addLayout(act_bar)
+        self.btn_delete.setVisible(False)
 
         body_h.addLayout(left_col, stretch=1)
 
-        # Drawers Laterais Direitos
+        # Drawers Laterais Direitos (Overlay em altura total com scrim escuro estilo Arthas)
         self.filter_drawer = SideDrawer(
             title="Filtros Avançados",
             subtitle="Configure regime, situação, conta e categoria",
-            width=336,
+            width=380,
+            overlay=True,
             parent=self,
         )
         self._build_filter_drawer_content()
-        body_h.addWidget(self.filter_drawer)
 
         self.installment_drawer = SideDrawer(
             title="Detalhe da Série Parcelada",
             subtitle="",
-            width=404,
+            width=440,
+            overlay=True,
             parent=self,
         )
-        body_h.addWidget(self.installment_drawer)
 
         root.addLayout(body_h, stretch=1)
 
@@ -1594,8 +2154,10 @@ class TransacoesView(QWidget):
             accent_color=accent_hex,
             tint=tint,
         )
-        card.lbl_value.setStyleSheet(f"color: {accent_hex}; font-size: 22px; font-weight: 700;")
-        card.lbl_subtitle.setStyleSheet("font-size: 11px;")
+        card.lbl_value.setStyleSheet(
+            f"color: {accent_hex}; font-size: 19px; font-weight: 700; background: transparent; border: none;"
+        )
+        card.lbl_subtitle.setStyleSheet("font-size: 11px; background: transparent; border: none;")
         return card, card.lbl_value, card.lbl_subtitle
 
     def _on_selection_changed(self) -> None:
@@ -1623,10 +2185,11 @@ class TransacoesView(QWidget):
             KIND_TRANSFERENCIA: "Transferências",
         }
         for key, btn in self.count_pills.items():
-            btn.setText(f"{labels[key]} {counts[key]}")
             btn.setProperty("active", key == active_kind)
+            btn.setText(f"{labels[key]} {counts[key]}")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+            btn.update()
 
     def set_view_mode(self, mode: str) -> None:
         self._view_mode = "feed" if mode == "feed" else "table"
@@ -1808,158 +2371,17 @@ class TransacoesView(QWidget):
             w = w.parent()
 
     def open_installment_drawer(self, occ: Occurrence) -> None:
-        """Abre o drawer lateral com anel de progresso e timeline vertical das parcelas."""
+        """Abre o drawer lateral em overlay com anel de progresso e timeline espaçada das parcelas."""
         self.filter_drawer.setVisible(False)
         series = self.tx_service.list_installment_series(occ)
         if not series:
             return
-
-        total_n = max(occ.num_parcelas, len(series))
-        eyebrow = f"{'COMPRA' if occ.kind == KIND_DESPESA else 'RECEITA'} PARCELADA · {total_n}×"
-        source_txt = occ.cartao_nome or occ.conta_nome or ""
-        self.installment_drawer.set_header(occ.descricao, source_txt, eyebrow=eyebrow)
-        self.installment_drawer.clear_body()
-
-        # Limpa botões antigos do rodapé do drawer
-        while self.installment_drawer.footer_layout.count():
-            it = self.installment_drawer.footer_layout.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
-
-        lay = self.installment_drawer.body_layout
-
-        # Bloco superior: DonutProgressRing + Resumo numérico
-        top_card = QFrame()
-        top_card.setObjectName("CardSurface")
-        top_h = QHBoxLayout(top_card)
-        top_h.setContentsMargins(14, 14, 14, 14)
-        top_h.setSpacing(14)
-
-        accent_hex = PRIMARY_BLUE if occ.kind == KIND_DESPESA else INCOME_GREEN
-        ring = DonutProgressRing(size=92)
-        ring.set_progress(occ.num_parcela, total_n, subtitle="parcela atual", accent_hex=accent_hex)
-        top_h.addWidget(ring)
-
-        paid_items = [s for s in series if s["efetivada"] or s["num_parcela"] < occ.num_parcela]
-        rem_items = [s for s in series if s not in paid_items]
-        total_sum = sum(s["valor"] for s in series)
-        paid_sum = sum(s["valor"] for s in paid_items)
-        rem_sum = sum(s["valor"] for s in rem_items)
-        last_dt = series[-1]["data_vencimento"]
-        last_str = (
-            f"até {PT_BR_MONTHS.get(last_dt.month, '')[:3].lower()}/{str(last_dt.year)[-2:]}"
-            if last_dt
-            else ""
+        self.installment_drawer.populate_installment_series(
+            occ=occ,
+            series=series,
+            theme_mode=self.db.settings.theme_mode,
+            on_open_bill=self._navigate_to_cards if occ.is_card else None,
         )
-
-        stats_grid = QGridLayout()
-        stats_grid.setVerticalSpacing(6)
-        stats_grid.setHorizontalSpacing(10)
-
-        def _add_stat(r_idx: int, label_txt: str, val_txt: str, sub_txt: str = "", val_color: str = "") -> None:
-            l_col = QVBoxLayout()
-            l_col.setSpacing(0)
-            l1 = QLabel(label_txt)
-            l1.setObjectName("MutedText")
-            l1.setStyleSheet("font-size: 11px;")
-            l_col.addWidget(l1)
-            if sub_txt:
-                l2 = QLabel(sub_txt)
-                l2.setObjectName("MutedText")
-                l2.setStyleSheet("font-size: 10px;")
-                l_col.addWidget(l2)
-            v_lbl = QLabel(val_txt)
-            v_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            v_lbl.setStyleSheet(
-                f"font-size: 13px; font-weight: 700; {f'color: {val_color};' if val_color else ''}"
-            )
-            stats_grid.addLayout(l_col, r_idx, 0)
-            stats_grid.addWidget(v_lbl, r_idx, 1)
-
-        _add_stat(0, "Total", format_currency(total_sum), f"{total_n}× {format_currency(occ.valor)}")
-        _add_stat(
-            1,
-            "Já cobrado",
-            format_currency(paid_sum),
-            f"{len(paid_items)} parcela(s)",
-            accent_hex,
-        )
-        _add_stat(2, "Falta", format_currency(rem_sum), last_str)
-        top_h.addLayout(stats_grid, 1)
-        lay.insertWidget(lay.count() - 1, top_card)
-
-        # Timeline Vertical das Parcelas
-        lbl_tl = QLabel("CRONOGRAMA DAS PARCELAS")
-        lbl_tl.setObjectName("MutedText")
-        lbl_tl.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 0.06em;")
-        lay.insertWidget(lay.count() - 1, lbl_tl)
-
-        for item in series:
-            n_cur = int(item["num_parcela"])
-            is_cur = item["id"] == occ.id or n_cur == occ.num_parcela
-            dt: Optional[date] = item["data_vencimento"]
-            mon_lbl = PT_BR_MONTHS.get(dt.month, "")[:3] if dt else "—"
-            yr_lbl = str(dt.year) if dt else ""
-
-            row_card = QFrame()
-            row_card.setObjectName("TimelineItemCard")
-            row_card.setProperty("current", is_cur)
-            rh = QHBoxLayout(row_card)
-            rh.setContentsMargins(10, 8, 10, 8)
-            rh.setSpacing(10)
-
-            dt_col = QVBoxLayout()
-            dt_col.setSpacing(1)
-            lbl_m = QLabel(f"{mon_lbl}/{yr_lbl[-2:]}" if yr_lbl else mon_lbl)
-            lbl_m.setStyleSheet("font-size: 11px; font-weight: 700;")
-            lbl_d = QLabel(dt.strftime("%d/%m") if dt else "—")
-            lbl_d.setObjectName("MutedText")
-            lbl_d.setStyleSheet("font-size: 10px;")
-            dt_col.addWidget(lbl_m)
-            dt_col.addWidget(lbl_d)
-            rh.addLayout(dt_col)
-
-            mid_col = QVBoxLayout()
-            mid_col.setSpacing(1)
-            lbl_p = QLabel(f"Parcela {n_cur}/{total_n}")
-            lbl_p.setStyleSheet("font-size: 12px; font-weight: 600;")
-            lbl_s = QLabel(f"Vencimento {format_date_br(dt.isoformat())}" if dt else "")
-            lbl_s.setObjectName("MutedText")
-            lbl_s.setStyleSheet("font-size: 10px;")
-            mid_col.addWidget(lbl_p)
-            mid_col.addWidget(lbl_s)
-            rh.addLayout(mid_col, 1)
-
-            right_col = QVBoxLayout()
-            right_col.setSpacing(3)
-            right_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            lbl_v = QLabel(format_currency(item["valor"]))
-            lbl_v.setAlignment(Qt.AlignmentFlag.AlignRight)
-            lbl_v.setStyleSheet("font-size: 12px; font-weight: 700;")
-            right_col.addWidget(lbl_v)
-
-            if is_cur:
-                tag = QLabel("FATURA ATUAL" if occ.is_card else "PARCELA ATUAL")
-                tag.setObjectName("TimelineTagCurrent")
-            elif item["efetivada"] or n_cur < occ.num_parcela:
-                tag = QLabel("COBRADA" if occ.is_card else "PAGA")
-                tag.setObjectName("TimelineTagPaid")
-            else:
-                tag = QLabel("PREVISTA")
-                tag.setObjectName("TimelineTagFuture")
-            tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            tag.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            right_col.addWidget(tag, 0, Qt.AlignmentFlag.AlignRight)
-            rh.addLayout(right_col)
-
-            lay.insertWidget(lay.count() - 1, row_card)
-
-        if occ.is_card:
-            btn_open_bill = QPushButton("Abrir fatura no módulo Cartões")
-            btn_open_bill.setObjectName("PrimaryButton")
-            btn_open_bill.clicked.connect(self._navigate_to_cards)
-            self.installment_drawer.footer_layout.addWidget(btn_open_bill, 1)
-
         self.installment_drawer.open_drawer()
 
     def _on_table_context_menu(self, pos) -> None:
@@ -2025,19 +2447,17 @@ class TransacoesView(QWidget):
         if primary_acc is None and other_accounts:
             primary_acc = other_accounts.pop(0)
 
-        # 1. Primeira Opção e Padrão: Conta Corrente
-        if primary_acc:
-            self.cb_filter_source.addItem(f"Conta: {primary_acc.name}", f"ACC:{primary_acc.id}")
-
-        # 2. Visões Agrupadas
+        # 1. Primeira Opção e Padrão (estilo Artha): Todas as Contas e Cartões
         self.cb_filter_source.addItem("Todas as Contas e Cartões", "ALL")
         self.cb_filter_source.addItem("Apenas Contas Bancárias (Caixa)", "ACCOUNTS_ONLY")
 
-        # 3. Demais Contas Bancárias
+        # 2. Conta Corrente prioritária seguida das demais contas
+        if primary_acc:
+            self.cb_filter_source.addItem(f"Conta: {primary_acc.name}", f"ACC:{primary_acc.id}")
         for acc in other_accounts:
             self.cb_filter_source.addItem(f"Conta: {acc.name}", f"ACC:{acc.id}")
 
-        # 4. Cartões de Crédito
+        # 3. Cartões de Crédito
         for card in cards:
             self.cb_filter_source.addItem(f"Cartão: {card.nome}", f"CARD:{card.id}")
 
@@ -2077,6 +2497,9 @@ class TransacoesView(QWidget):
         elif status_filter == "PENDING":
             only_effective = False
 
+        local_search = self.ed_quick_search.text().strip() if hasattr(self, "ed_quick_search") else ""
+        merged_search = " ".join(part for part in (search_text, local_search) if part).strip()
+
         all_for_pills = self.tx_service.list_occurrences(
             year,
             month,
@@ -2085,7 +2508,7 @@ class TransacoesView(QWidget):
             id_conta=id_conta,
             id_cartao=id_cartao,
             source=source,
-            search=search_text,
+            search=merged_search,
             only_effective=only_effective,
             profile_id=profile_id,
         )
@@ -2135,13 +2558,21 @@ class TransacoesView(QWidget):
         res_val = summary["resultado"]
         self.lbl_res_val.setText(format_currency(res_val))
         self.lbl_res_val.setStyleSheet(
-            f"color: {INCOME_GREEN if res_val >= 0 else EXPENSE_RED}; font-size: 22px; font-weight: 700;"
+            f"color: {INCOME_GREEN if res_val >= 0 else EXPENSE_RED}; font-size: 19px; font-weight: 700; background: transparent; border: none;"
         )
         self.lbl_res_sub.setText(
             f"Saldo Previsto: {format_currency(saldo_prev)}"
         )
 
         self.lbl_count_badge.setText(f"{len(self._occurrences)} lançamentos")
+        uncat_cnt = sum(
+            1 for o in self._occurrences
+            if o.kind != KIND_TRANSFERENCIA and (not o.id_categoria or str(o.id_categoria).strip() in ("", "-1"))
+        )
+        if uncat_cnt > 0:
+            self.lbl_subtitle.setText(f"Gerencie suas receitas e despesas · {uncat_cnt} sem categoria")
+        else:
+            self.lbl_subtitle.setText("Gerencie suas receitas e despesas")
         self._populate_table()
         self._populate_feed()
         self._sync_active_list_widget()
@@ -2287,6 +2718,27 @@ class TransacoesView(QWidget):
             card.style().polish(card)
         self._on_selection_changed()
 
+    def _open_feed_row_menu(self, row_idx: int, btn: QWidget) -> None:
+        self._select_feed_row(row_idx)
+        occ = self._selected_occurrence()
+        if occ is None:
+            return
+        menu = QMenu(self)
+        act_toggle = menu.addAction(
+            get_line_icon("check", size=15),
+            "Desfazer Baixa" if occ.efetivada else "Confirmar Baixa",
+        )
+        act_toggle.triggered.connect(self.toggle_selected_effective)
+        act_edit = menu.addAction(get_line_icon("edit", size=15), "Editar Lançamento")
+        act_edit.triggered.connect(self.edit_selected_occurrence)
+        if occ.is_installment:
+            act_parc = menu.addAction(get_line_icon("card", size=15), f"Ver as {occ.num_parcelas} parcelas")
+            act_parc.triggered.connect(lambda: self.open_installment_drawer(occ))
+        menu.addSeparator()
+        act_del = menu.addAction(get_line_icon("trash", size=15), "Excluir Lançamento")
+        act_del.triggered.connect(self.delete_selected_occurrence)
+        menu.exec(btn.mapToGlobal(btn.rect().bottomRight()))
+
     def _populate_feed(self) -> None:
         while self.feed_layout.count() > 1:
             it = self.feed_layout.takeAt(0)
@@ -2299,6 +2751,40 @@ class TransacoesView(QWidget):
         if not self._occurrences:
             return
 
+        from app.config.theme_palette import ThemePalette
+
+        pal = ThemePalette.for_mode(self.db.settings.theme_mode)
+        self.feed_scroll.setStyleSheet(
+            f"QScrollArea {{ background-color: {pal.surface_card}; border: 1px solid {pal.border_subtle}; border-radius: 10px; }}"
+        )
+
+        # Cabeçalho de colunas discreto estilo Artha: DATA | DESCRIÇÃO | VALOR
+        cols_hdr = QFrame()
+        cols_hdr.setObjectName("FeedColsHeader")
+        cols_hdr.setFixedHeight(32)
+        cols_hdr.setStyleSheet(
+            f"QFrame#FeedColsHeader {{ background-color: {pal.surface_card}; border: none; border-bottom: 1px solid {pal.border_subtle}; }}"
+        )
+        ch_lay = QHBoxLayout(cols_hdr)
+        ch_lay.setContentsMargins(16, 0, 50, 0)
+        ch_lay.setSpacing(10)
+        lbl_h_dt = QLabel("DATA")
+        lbl_h_dt.setObjectName("MutedText")
+        lbl_h_dt.setFixedWidth(84)
+        lbl_h_dt.setStyleSheet("border: none; background: transparent; font-size: 10px; font-weight: 700; letter-spacing: 0.05em;")
+        lbl_h_desc = QLabel("DESCRIÇÃO")
+        lbl_h_desc.setObjectName("MutedText")
+        lbl_h_desc.setStyleSheet("border: none; background: transparent; font-size: 10px; font-weight: 700; letter-spacing: 0.05em;")
+        lbl_h_val = QLabel("VALOR")
+        lbl_h_val.setObjectName("MutedText")
+        lbl_h_val.setMinimumWidth(115)
+        lbl_h_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        lbl_h_val.setStyleSheet("border: none; background: transparent; font-size: 10px; font-weight: 700; letter-spacing: 0.05em;")
+        ch_lay.addWidget(lbl_h_dt)
+        ch_lay.addWidget(lbl_h_desc, 1)
+        ch_lay.addWidget(lbl_h_val)
+        self.feed_layout.insertWidget(self.feed_layout.count() - 1, cols_hdr)
+
         weekdays = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
         today = date.today()
         groups: List[Tuple[date, List[Tuple[int, Occurrence]]]] = []
@@ -2310,28 +2796,48 @@ class TransacoesView(QWidget):
             by_date[occ.ref_date].append((idx, occ))
 
         for grp_dt, entries in groups:
-            prefix = "Hoje · " if grp_dt == today else ""
+            is_today = grp_dt == today
+            prefix = "Hoje · " if is_today else ""
             wk = weekdays[grp_dt.weekday()]
             day_net = sum(o.signed_total for _, o in entries)
+            day_net_str = (
+                f"-{format_currency(abs(day_net))}"
+                if day_net < 0
+                else (f"+{format_currency(day_net)}" if day_net > 0 else format_currency(0.0))
+            )
 
             hdr_frame = QFrame()
             hdr_frame.setObjectName("FeedDateHeader")
+            hdr_frame.setProperty("today", is_today)
+            hdr_frame.setFixedHeight(32)
             hh = QHBoxLayout(hdr_frame)
-            hh.setContentsMargins(12, 6, 12, 6)
+            hh.setContentsMargins(16, 0, 50, 0)
+            dt_hdr_col = pal.primary if is_today else pal.text_secondary
             lbl_dt = QLabel(f"{prefix}{grp_dt.strftime('%d/%m')} · {wk}")
-            lbl_dt.setStyleSheet("font-size: 12px; font-weight: 700;")
-            lbl_net = QLabel(format_currency(day_net))
+            lbl_dt.setStyleSheet(
+                f"font-size: 11px; font-weight: 700; color: {dt_hdr_col}; background: transparent; border: none;"
+            )
+            sub_bg = (
+                "rgba(148, 163, 184, 0.14)"
+                if pal.mode == "dark"
+                else "rgba(15, 23, 42, 0.06)"
+            )
+            lbl_net = QLabel(f"Subtotal  {day_net_str}")
+            lbl_net.setObjectName("FeedSubtotalBadge")
+            lbl_net.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             lbl_net.setStyleSheet(
-                f"font-size: 12px; font-weight: 700; color: {INCOME_GREEN if day_net >= 0 else EXPENSE_RED};"
+                f"font-size: 11px; font-weight: 600; color: {pal.text_secondary}; "
+                f"background-color: {sub_bg}; border: none; border-radius: 9px; padding: 2px 9px;"
             )
             hh.addWidget(lbl_dt)
             hh.addStretch()
-            hh.addWidget(lbl_net)
+            hh.addWidget(lbl_net, 0, Qt.AlignmentFlag.AlignVCenter)
             self.feed_layout.insertWidget(self.feed_layout.count() - 1, hdr_frame)
 
             for row_idx, occ in entries:
                 card = QFrame()
                 card.setObjectName("FeedRowCard")
+                card.setMinimumHeight(60)
                 card.setProperty("selected", row_idx == self.table.currentRow())
                 card.setCursor(Qt.CursorShape.PointingHandCursor)
                 card.mousePressEvent = lambda ev, r=row_idx: self._select_feed_row(r)  # type: ignore[method-assign]
@@ -2341,57 +2847,97 @@ class TransacoesView(QWidget):
                 )
 
                 ch = QHBoxLayout(card)
-                ch.setContentsMargins(14, 10, 14, 10)
-                ch.setSpacing(12)
+                ch.setContentsMargins(16, 9, 16, 9)
+                ch.setSpacing(10)
 
-                # Ícone circular à esquerda
+                # Checkbox discreto (22x22 íntegro) + Data (52px sem colisão)
+                chk_row = QCheckBox()
+                chk_row.setFixedSize(22, 22)
+                chk_row.setStyleSheet(
+                    "QCheckBox { spacing: 0px; margin: 0px; padding: 0px; background: transparent; }"
+                )
+                chk_row.toggled.connect(lambda checked, r=row_idx: checked and self._select_feed_row(r))
+                ch.addWidget(chk_row)
+
+                dt_col = QVBoxLayout()
+                dt_col.setContentsMargins(0, 0, 0, 0)
+                dt_col.setSpacing(0)
+                lbl_d_num = QLabel(occ.ref_date.strftime("%d/%m"))
+                lbl_d_num.setStyleSheet("font-size: 12px; font-weight: 600;")
+                lbl_d_wk = QLabel(weekdays[occ.ref_date.weekday()].upper())
+                lbl_d_wk.setObjectName("MutedText")
+                lbl_d_wk.setStyleSheet("font-size: 10px;")
+                dt_col.addWidget(lbl_d_num)
+                dt_col.addWidget(lbl_d_wk)
+                dt_wrap = QWidget()
+                dt_wrap.setFixedWidth(52)
+                dt_wrap.setLayout(dt_col)
+                ch.addWidget(dt_wrap)
+
+                # Ícone redondo suave estilo Arthas (34x34 circular)
                 ico_lbl = QLabel()
                 ico_lbl.setFixedSize(34, 34)
                 ico_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 if occ.kind == KIND_TRANSFERENCIA:
-                    ico_lbl.setPixmap(get_line_pixmap("swap", color=TRANSFER_AMBER, size=18))
+                    ico_lbl.setStyleSheet(
+                        f"background-color: {pal.primary_active_pill}; border-radius: 17px;"
+                    )
+                    ico_lbl.setPixmap(get_line_pixmap("swap", color=pal.primary, size=15))
                 else:
-                    cat_col = occ.categoria_cor or "#5C6BC0"
-                    initial = (occ.categoria_nome[:1] if occ.categoria_nome else "•").upper()
-                    ico_lbl.setPixmap(create_color_badge_icon(cat_col, initial, size=28).pixmap(28, 28))
+                    cat_col = occ.categoria_cor or "#5B5BD6"
+                    tint_c = QColor(cat_col)
+                    tint_bg = f"rgba({tint_c.red()}, {tint_c.green()}, {tint_c.blue()}, 0.14)"
+                    ico_lbl.setStyleSheet(
+                        f"background-color: {tint_bg}; border-radius: 17px; color: {cat_col}; font-weight: 700; font-size: 12px;"
+                    )
+                    if occ.kind == KIND_RECEITA:
+                        ico_lbl.setPixmap(get_line_pixmap("arrow-up", color=INCOME_GREEN, size=15))
+                    elif occ.is_card:
+                        ico_lbl.setPixmap(get_line_pixmap("card", color=cat_col, size=15))
+                    else:
+                        ico_lbl.setText((occ.categoria_nome[:1] if occ.categoria_nome else "•").upper())
                 ch.addWidget(ico_lbl)
 
-                # Bloco central: Descrição + Categoria + Parcela + Subtítulo conta/cartão
+                # Bloco central: Linha 1 (Descrição + Pílula Redonda Categoria) | Linha 2 (Banco/Cartão + Timeline de Pontos)
                 mid = QVBoxLayout()
-                mid.setSpacing(3)
+                mid.setContentsMargins(0, 0, 0, 0)
+                mid.setSpacing(2)
 
                 top_line = QHBoxLayout()
-                top_line.setSpacing(8)
+                top_line.setSpacing(6)
                 lbl_d = QLabel(occ.descricao)
                 lbl_d.setStyleSheet("font-size: 13px; font-weight: 600;")
                 top_line.addWidget(lbl_d)
 
                 if occ.kind == KIND_TRANSFERENCIA:
-                    top_line.addWidget(Badge("Transferência", variant="info"))
+                    top_line.addWidget(Badge("• Transferência", variant="info"))
                 elif occ.categoria_nome:
                     cat_str = (
                         f"{occ.categoria_nome} ▸ {occ.subcategoria_nome}"
                         if occ.subcategoria_nome
                         else occ.categoria_nome
                     )
-                    top_line.addWidget(Badge(cat_str, variant="default"))
+                    cat_col = occ.categoria_cor or pal.primary
+                    cc = QColor(cat_col)
+                    cat_pill = QLabel(f"• {cat_str}")
+                    cat_pill.setObjectName("CategoryCapsulePill")
+                    cat_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    cat_pill.setStyleSheet(
+                        f"QLabel#CategoryCapsulePill {{ background-color: rgba({cc.red()}, {cc.green()}, {cc.blue()}, 0.14); "
+                        f"color: {cat_col}; border: none; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }}"
+                    )
+                    top_line.addWidget(cat_pill)
                 else:
                     top_line.addWidget(Badge("Sem categoria", variant="warning"))
 
-                if occ.is_installment:
-                    mini = InstallmentMiniBar(
-                        occ.num_parcela,
-                        occ.num_parcelas,
-                        accent_hex=PRIMARY_BLUE if occ.kind == KIND_DESPESA else INCOME_GREEN,
-                    )
-                    mini.clicked.connect(lambda o=occ: self.open_installment_drawer(o))
-                    top_line.addWidget(mini)
-                elif occ.is_fixed:
-                    top_line.addWidget(Badge("Fixa", variant="default"))
+                if not occ.efetivada:
+                    top_line.addWidget(Badge("Pendente", variant="warning"))
 
                 top_line.addStretch()
                 mid.addLayout(top_line)
 
+                sub_line = QHBoxLayout()
+                sub_line.setSpacing(8)
                 src_txt = (
                     f"{occ.conta_nome} → {occ.conta_destino_nome}"
                     if occ.kind == KIND_TRANSFERENCIA
@@ -2402,28 +2948,42 @@ class TransacoesView(QWidget):
                 )
                 lbl_sub = QLabel(f"{src_txt}{tags_suffix}")
                 lbl_sub.setObjectName("MutedText")
-                lbl_sub.setStyleSheet("font-size: 11px;")
-                mid.addWidget(lbl_sub)
+                lbl_sub.setStyleSheet("font-size: 12px;")
+                sub_line.addWidget(lbl_sub, 0, Qt.AlignmentFlag.AlignVCenter)
+
+                if occ.is_installment:
+                    mini = InstallmentMiniBar(
+                        occ.num_parcela,
+                        occ.num_parcelas,
+                    )
+                    mini.clicked.connect(lambda o=occ: self.open_installment_drawer(o))
+                    sub_line.addWidget(mini, 0, Qt.AlignmentFlag.AlignVCenter)
+                elif occ.is_fixed:
+                    sub_line.addWidget(Badge("Fixa", variant="default"), 0, Qt.AlignmentFlag.AlignVCenter)
+
+                sub_line.addStretch()
+                mid.addLayout(sub_line)
                 ch.addLayout(mid, 1)
 
-                # Direita: Valor tabulado + Status pill
-                right_col = QVBoxLayout()
-                right_col.setSpacing(3)
-                right_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                sign = "+ " if occ.kind == KIND_RECEITA else ("− " if occ.kind == KIND_DESPESA else "")
+                # Direita: Valor real da transação em destaque (14px bold em cor viva) + Menu ⋮
+                sign = "+" if occ.kind == KIND_RECEITA else ("-" if occ.kind == KIND_DESPESA else "")
                 v_col = INCOME_GREEN if occ.kind == KIND_RECEITA else (EXPENSE_RED if occ.kind == KIND_DESPESA else TRANSFER_AMBER)
-                lbl_val = QLabel(f"{sign}{format_currency(occ.total)}")
-                lbl_val.setAlignment(Qt.AlignmentFlag.AlignRight)
+                lbl_val = QLabel(f"{sign}{format_currency(abs(occ.total))}")
+                lbl_val.setMinimumWidth(115)
+                lbl_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 lbl_val.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {v_col};")
-                right_col.addWidget(lbl_val)
+                ch.addWidget(lbl_val)
 
-                st_txt = "Efetivado" if occ.efetivada else "Pendente"
-                right_col.addWidget(
-                    Badge(st_txt, variant="success" if occ.efetivada else "warning"),
-                    0,
-                    Qt.AlignmentFlag.AlignRight,
+                btn_more = QToolButton()
+                btn_more.setText("⋮")
+                btn_more.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_more.setFixedSize(24, 24)
+                btn_more.setStyleSheet(
+                    f"QToolButton {{ background: transparent; border: none; border-radius: 6px; font-size: 15px; color: {pal.text_secondary}; }}"
+                    f"QToolButton:hover {{ background-color: {pal.app_background}; color: {pal.text_primary}; }}"
                 )
-                ch.addLayout(right_col)
+                btn_more.clicked.connect(lambda _=False, r=row_idx, b=btn_more: self._open_feed_row_menu(r, b))
+                ch.addWidget(btn_more)
 
                 self._feed_cards[row_idx] = card
                 self.feed_layout.insertWidget(self.feed_layout.count() - 1, card)
@@ -2437,173 +2997,180 @@ class TransacoesView(QWidget):
     # ------------------------------------------------------------------ #
     # Diálogos e Ações de Mutação
     # ------------------------------------------------------------------ #
-    def open_new_expense_dialog(
-        self, card_mode: bool = False, preselect_card_id: Optional[str] = None
+    def open_new_transaction_dialog(
+        self,
+        initial_kind: str = KIND_DESPESA,
+        card_mode: bool = False,
+        preselect_card_id: Optional[str] = None,
     ) -> None:
         profile_id, month, year, _ = self.get_context()
         default_dt = date(year, month, min(date.today().day, 28))
-        dlg = ExpenseDialog(
+        dlg = UnifiedTransactionDialog(
             self.db,
             profile_id=profile_id,
             default_date=default_dt,
+            initial_kind=initial_kind,
             card_mode=card_mode,
             preselect_card_id=preselect_card_id,
             parent=self,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
+        self._save_unified_dialog_result(dlg, profile_id=profile_id, occurrence=None)
 
-        if dlg.selected_kind() == KIND_RECEITA:
-            rec_code = str(dlg.cb_rec.currentData() or REC_UNICA)
-            num_parc = int(dlg.sp_parcelas.value()) if rec_code == REC_PARCELADA else 1
-            rec_income = fixed_code_for(KIND_RECEITA) if rec_code in FIXED_CODES[KIND_DESPESA] or rec_code == "M" else rec_code
-            self.tx_service.create_income(
-                descricao=dlg.ed_desc.text().strip(),
-                valor=float(dlg.sp_valor.value()),
-                data=_qdate_to_py(dlg.dt_venc.date()),
-                id_conta=str(dlg.cb_conta.currentData()) if dlg.cb_conta.currentData() else None,
-                profile_id=profile_id,
-                id_categoria=str(dlg.cb_cat.currentData()) if dlg.cb_cat.currentData() else None,
-                id_subcategoria=str(dlg.cb_sub.currentData()) if dlg.cb_sub.currentData() else None,
-                recorrencia=rec_income,
-                num_parcelas=num_parc,
-                valor_por_parcela=dlg.chk_val_parcela.isChecked(),
-                recebido=dlg.chk_pago.isChecked(),
-                obs=dlg.ed_obs.text().strip(),
-                tag_ids=dlg.selected_tag_ids(),
-            )
-            self.on_data_mutated()
-            self.refresh_data()
-            return
-
-        is_card = dlg.rb_cartao.isChecked()
-        rec_code = str(dlg.cb_rec.currentData() or REC_UNICA)
+    def _save_unified_dialog_result(
+        self,
+        dlg: UnifiedTransactionDialog,
+        profile_id: str,
+        occurrence: Optional[Occurrence],
+    ) -> None:
+        kind = dlg.selected_kind()
+        raw_rec = str(dlg.cb_rec.currentData() or REC_UNICA)
+        if raw_rec == "FIXED":
+            rec_code = fixed_code_for(kind)
+        else:
+            rec_code = raw_rec
         num_parc = int(dlg.sp_parcelas.value()) if rec_code == REC_PARCELADA else 1
-        self.tx_service.create_expense(
-            descricao=dlg.ed_desc.text().strip(),
-            valor=float(dlg.sp_valor.value()),
-            data_vencimento=_qdate_to_py(dlg.dt_venc.date()),
-            data_evento=_qdate_to_py(dlg.dt_evento.date()),
-            profile_id=profile_id,
-            id_conta=str(dlg.cb_conta.currentData()) if not is_card else None,
-            id_cartao=str(dlg.cb_cartao.currentData()) if is_card else None,
-            id_categoria=(
-                str(dlg.cb_cat.currentData())
-                if len(dlg.custom_splits) <= 1 and dlg.cb_cat.currentData()
-                else None
-            ),
-            id_subcategoria=(
-                str(dlg.cb_sub.currentData())
-                if len(dlg.custom_splits) <= 1 and dlg.cb_sub.currentData()
-                else None
-            ),
-            splits=dlg.custom_splits if len(dlg.custom_splits) > 1 else None,
-            recorrencia=rec_code,
-            num_parcelas=num_parc,
-            valor_por_parcela=dlg.chk_val_parcela.isChecked(),
-            pago=dlg.chk_pago.isChecked(),
-            obs=dlg.ed_obs.text().strip(),
-            tag_ids=dlg.selected_tag_ids(),
-            terceiro_em_nome_de=(
-                dlg.ed_terceiro_pessoa.text().strip()
-                if dlg.chk_terceiro.isChecked()
-                else None
-            ),
-            gerar_emprestimo_terceiro=dlg.chk_terceiro.isChecked(),
-        )
+        is_eff = bool(dlg.cb_status.currentData())
+
+        if occurrence is None:
+            if kind == KIND_RECEITA:
+                self.tx_service.create_income(
+                    descricao=dlg.ed_desc.text().strip(),
+                    valor=float(dlg.sp_valor.value()),
+                    data=_qdate_to_py(dlg.dt_venc.date()),
+                    id_conta=str(dlg.cb_conta.currentData()) if dlg.cb_conta.currentData() else None,
+                    profile_id=profile_id,
+                    id_categoria=str(dlg.cb_cat.currentData()) if dlg.cb_cat.currentData() else None,
+                    id_subcategoria=str(dlg.cb_sub.currentData()) if dlg.cb_sub.currentData() else None,
+                    recorrencia=rec_code,
+                    num_parcelas=num_parc,
+                    valor_por_parcela=dlg.chk_val_parcela.isChecked(),
+                    recebido=is_eff,
+                    obs=dlg.ed_obs.text().strip(),
+                    tag_ids=dlg.selected_tag_ids(),
+                )
+            elif kind == KIND_TRANSFERENCIA:
+                self.tx_service.create_transfer(
+                    descricao=dlg.ed_desc.text().strip(),
+                    valor=float(dlg.sp_valor.value()),
+                    data=_qdate_to_py(dlg.dt_venc.date()),
+                    id_conta_origem=str(dlg.cb_origem.currentData()),
+                    id_conta_destino=str(dlg.cb_destino.currentData()),
+                    profile_id=profile_id,
+                    recorrencia=rec_code,
+                    num_parcelas=num_parc,
+                    efetivada=is_eff,
+                    obs=dlg.ed_obs.text().strip(),
+                )
+            else:
+                is_card = dlg.rb_cartao.isChecked()
+                self.tx_service.create_expense(
+                    descricao=dlg.ed_desc.text().strip(),
+                    valor=float(dlg.sp_valor.value()),
+                    data_vencimento=_qdate_to_py(dlg.dt_venc.date()),
+                    data_evento=_qdate_to_py(dlg.dt_evento.date()),
+                    profile_id=profile_id,
+                    id_conta=str(dlg.cb_conta.currentData()) if not is_card else None,
+                    id_cartao=str(dlg.cb_cartao.currentData()) if is_card else None,
+                    id_categoria=(
+                        str(dlg.cb_cat.currentData())
+                        if len(dlg.custom_splits) <= 1 and dlg.cb_cat.currentData()
+                        else None
+                    ),
+                    id_subcategoria=(
+                        str(dlg.cb_sub.currentData())
+                        if len(dlg.custom_splits) <= 1 and dlg.cb_sub.currentData()
+                        else None
+                    ),
+                    splits=dlg.custom_splits if len(dlg.custom_splits) > 1 else None,
+                    recorrencia=rec_code,
+                    num_parcelas=num_parc,
+                    valor_por_parcela=dlg.chk_val_parcela.isChecked(),
+                    pago=is_eff,
+                    obs=dlg.ed_obs.text().strip(),
+                    tag_ids=dlg.selected_tag_ids(),
+                    terceiro_em_nome_de=(
+                        dlg.ed_terceiro_pessoa.text().strip()
+                        if dlg.chk_terceiro.isChecked()
+                        else None
+                    ),
+                    gerar_emprestimo_terceiro=dlg.chk_terceiro.isChecked(),
+                )
+        else:
+            scope = str(dlg.cb_scope.currentData() or "this") if hasattr(dlg, "cb_scope") else "this"
+            if kind == KIND_TRANSFERENCIA:
+                self.tx_service.update_occurrence(
+                    occurrence,
+                    scope=scope,
+                    descricao=dlg.ed_desc.text().strip(),
+                    valor=float(dlg.sp_valor.value()),
+                    data_vencimento=_qdate_to_py(dlg.dt_venc.date()),
+                    id_conta=str(dlg.cb_origem.currentData()),
+                    id_conta_destino=str(dlg.cb_destino.currentData()),
+                    obs=dlg.ed_obs.text().strip(),
+                    efetivada=is_eff,
+                )
+            else:
+                is_card = (kind == KIND_DESPESA and dlg.rb_cartao.isChecked())
+                self.tx_service.update_occurrence(
+                    occurrence,
+                    scope=scope,
+                    new_kind=kind,
+                    recorrencia=rec_code,
+                    descricao=dlg.ed_desc.text().strip(),
+                    valor=float(dlg.sp_valor.value()),
+                    data_vencimento=_qdate_to_py(dlg.dt_venc.date()),
+                    data_evento=_qdate_to_py(dlg.dt_evento.date()) if kind == KIND_DESPESA else None,
+                    id_conta=(
+                        str(dlg.cb_conta.currentData())
+                        if not is_card and dlg.cb_conta.currentData()
+                        else None
+                    ),
+                    id_cartao=(
+                        str(dlg.cb_cartao.currentData())
+                        if is_card and dlg.cb_cartao.currentData()
+                        else None
+                    ),
+                    id_categoria=(
+                        str(dlg.cb_cat.currentData())
+                        if (kind == KIND_RECEITA or len(dlg.custom_splits) <= 1) and dlg.cb_cat.currentData()
+                        else None
+                    ),
+                    id_subcategoria=(
+                        str(dlg.cb_sub.currentData())
+                        if (kind == KIND_RECEITA or len(dlg.custom_splits) <= 1) and dlg.cb_sub.currentData()
+                        else None
+                    ),
+                    splits=dlg.custom_splits if (kind == KIND_DESPESA and len(dlg.custom_splits) > 1) else None,
+                    obs=dlg.ed_obs.text().strip(),
+                    efetivada=is_eff,
+                    tag_ids=dlg.selected_tag_ids(),
+                )
+
         self.on_data_mutated()
         self.refresh_data()
+
+    def open_new_expense_dialog(
+        self, card_mode: bool = False, preselect_card_id: Optional[str] = None
+    ) -> None:
+        self.open_new_transaction_dialog(
+            initial_kind=KIND_DESPESA,
+            card_mode=card_mode,
+            preselect_card_id=preselect_card_id,
+        )
 
     def open_new_income_dialog(self) -> None:
-        profile_id, month, year, _ = self.get_context()
-        default_dt = date(year, month, min(date.today().day, 28))
-        dlg = IncomeDialog(
-            self.db,
-            profile_id=profile_id,
-            default_date=default_dt,
-            parent=self,
-        )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        if dlg.selected_kind() == KIND_DESPESA:
-            rec_code = str(dlg.cb_rec.currentData() or REC_UNICA)
-            num_parc = int(dlg.sp_parcelas.value()) if rec_code == REC_PARCELADA else 1
-            rec_exp = fixed_code_for(KIND_DESPESA) if rec_code in FIXED_CODES[KIND_RECEITA] or rec_code == "M" else rec_code
-            self.tx_service.create_expense(
-                descricao=dlg.ed_desc.text().strip(),
-                valor=float(dlg.sp_valor.value()),
-                data_vencimento=_qdate_to_py(dlg.dt_venc.date()),
-                data_evento=_qdate_to_py(dlg.dt_venc.date()),
-                profile_id=profile_id,
-                id_conta=str(dlg.cb_conta.currentData()) if dlg.cb_conta.currentData() else None,
-                id_categoria=str(dlg.cb_cat.currentData()) if dlg.cb_cat.currentData() else None,
-                id_subcategoria=str(dlg.cb_sub.currentData()) if dlg.cb_sub.currentData() else None,
-                recorrencia=rec_exp,
-                num_parcelas=num_parc,
-                valor_por_parcela=dlg.chk_val_parcela.isChecked(),
-                pago=dlg.chk_recebido.isChecked(),
-                obs=dlg.ed_obs.text().strip(),
-                tag_ids=dlg.selected_tag_ids(),
-            )
-            self.on_data_mutated()
-            self.refresh_data()
-            return
-
-        rec_code = str(dlg.cb_rec.currentData() or REC_UNICA)
-        num_parc = int(dlg.sp_parcelas.value()) if rec_code == REC_PARCELADA else 1
-        self.tx_service.create_income(
-            descricao=dlg.ed_desc.text().strip(),
-            valor=float(dlg.sp_valor.value()),
-            data=_qdate_to_py(dlg.dt_venc.date()),
-            id_conta=str(dlg.cb_conta.currentData()) if dlg.cb_conta.currentData() else None,
-            profile_id=profile_id,
-            id_categoria=str(dlg.cb_cat.currentData()) if dlg.cb_cat.currentData() else None,
-            id_subcategoria=str(dlg.cb_sub.currentData()) if dlg.cb_sub.currentData() else None,
-            recorrencia=rec_code,
-            num_parcelas=num_parc,
-            valor_por_parcela=dlg.chk_val_parcela.isChecked(),
-            recebido=dlg.chk_recebido.isChecked(),
-            obs=dlg.ed_obs.text().strip(),
-            tag_ids=dlg.selected_tag_ids(),
-        )
-        self.on_data_mutated()
-        self.refresh_data()
+        self.open_new_transaction_dialog(initial_kind=KIND_RECEITA)
 
     def open_new_transfer_dialog(self) -> None:
-        profile_id, month, year, _ = self.get_context()
-        default_dt = date(year, month, min(date.today().day, 28))
-        dlg = TransferDialog(
-            self.db,
-            profile_id=profile_id,
-            default_date=default_dt,
-            parent=self,
-        )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        rec_code = str(dlg.cb_rec.currentData() or REC_UNICA)
-        num_parc = int(dlg.sp_parcelas.value()) if rec_code == REC_PARCELADA else 1
-        self.tx_service.create_transfer(
-            descricao=dlg.ed_desc.text().strip(),
-            valor=float(dlg.sp_valor.value()),
-            data=_qdate_to_py(dlg.dt_venc.date()),
-            id_conta_origem=str(dlg.cb_origem.currentData()),
-            id_conta_destino=str(dlg.cb_destino.currentData()),
-            profile_id=profile_id,
-            recorrencia=rec_code,
-            num_parcelas=num_parc,
-            efetivada=dlg.chk_efetivada.isChecked(),
-            obs=dlg.ed_obs.text().strip(),
-        )
-        self.on_data_mutated()
-        self.refresh_data()
+        self.open_new_transaction_dialog(initial_kind=KIND_TRANSFERENCIA)
 
     def toggle_selected_effective(self) -> None:
         occ = self._selected_occurrence()
         if occ is None:
             QMessageBox.information(
-                self, "Selecione um lançamento", "Clique em uma linha da tabela."
+                self, "Selecione um lançamento", "Clique em um lançamento."
             )
             return
         self.tx_service.set_effective(occ, not occ.efetivada)
@@ -2615,109 +3182,18 @@ class TransacoesView(QWidget):
         if occ is None:
             return
         profile_id, _, _, _ = self.get_context()
-
-        if occ.kind == KIND_DESPESA:
-            dlg = ExpenseDialog(
-                self.db,
-                profile_id=profile_id,
-                default_date=occ.data_vencimento,
-                card_mode=occ.is_card,
-                occurrence=occ,
-                parent=self,
-            )
-            if dlg.exec() != QDialog.DialogCode.Accepted:
-                return
-            scope = str(dlg.cb_scope.currentData() or "this") if hasattr(dlg, "cb_scope") else "this"
-            new_kind = dlg.selected_kind()
-            is_card = dlg.rb_cartao.isChecked() if new_kind == KIND_DESPESA else False
-            rec_code = str(dlg.cb_rec.currentData() or REC_UNICA) if hasattr(dlg, "cb_rec") else None
-            self.tx_service.update_occurrence(
-                occ,
-                scope=scope,
-                new_kind=new_kind,
-                recorrencia=rec_code,
-                descricao=dlg.ed_desc.text().strip(),
-                valor=float(dlg.sp_valor.value()),
-                data_vencimento=_qdate_to_py(dlg.dt_venc.date()),
-                data_evento=_qdate_to_py(dlg.dt_evento.date()) if hasattr(dlg, "dt_evento") else None,
-                id_conta=(
-                    str(dlg.cb_conta.currentData())
-                    if not is_card and dlg.cb_conta.currentData()
-                    else None
-                ),
-                id_cartao=(
-                    str(dlg.cb_cartao.currentData())
-                    if is_card and dlg.cb_cartao.currentData()
-                    else None
-                ),
-                id_categoria=(
-                    str(dlg.cb_cat.currentData())
-                    if (new_kind == KIND_RECEITA or len(dlg.custom_splits) <= 1) and dlg.cb_cat.currentData()
-                    else None
-                ),
-                id_subcategoria=(
-                    str(dlg.cb_sub.currentData())
-                    if (new_kind == KIND_RECEITA or len(dlg.custom_splits) <= 1) and dlg.cb_sub.currentData()
-                    else None
-                ),
-                splits=dlg.custom_splits if (new_kind == KIND_DESPESA and len(dlg.custom_splits) > 1) else None,
-                obs=dlg.ed_obs.text().strip(),
-                efetivada=dlg.chk_pago.isChecked(),
-                tag_ids=dlg.selected_tag_ids(),
-            )
-        elif occ.kind == KIND_RECEITA:
-            dlg_r = IncomeDialog(
-                self.db,
-                profile_id=profile_id,
-                default_date=occ.data_vencimento,
-                occurrence=occ,
-                parent=self,
-            )
-            if dlg_r.exec() != QDialog.DialogCode.Accepted:
-                return
-            scope = str(dlg_r.cb_scope.currentData() or "this") if hasattr(dlg_r, "cb_scope") else "this"
-            new_kind = dlg_r.selected_kind()
-            rec_code = str(dlg_r.cb_rec.currentData() or REC_UNICA) if hasattr(dlg_r, "cb_rec") else None
-            self.tx_service.update_occurrence(
-                occ,
-                scope=scope,
-                new_kind=new_kind,
-                recorrencia=rec_code,
-                descricao=dlg_r.ed_desc.text().strip(),
-                valor=float(dlg_r.sp_valor.value()),
-                data_vencimento=_qdate_to_py(dlg_r.dt_venc.date()),
-                id_conta=str(dlg_r.cb_conta.currentData()) if dlg_r.cb_conta.currentData() else None,
-                id_categoria=str(dlg_r.cb_cat.currentData()) if dlg_r.cb_cat.currentData() else None,
-                id_subcategoria=str(dlg_r.cb_sub.currentData()) if dlg_r.cb_sub.currentData() else None,
-                obs=dlg_r.ed_obs.text().strip(),
-                efetivada=dlg_r.chk_recebido.isChecked(),
-                tag_ids=dlg_r.selected_tag_ids(),
-            )
-        else:
-            dlg_t = TransferDialog(
-                self.db,
-                profile_id=profile_id,
-                default_date=occ.data_vencimento,
-                occurrence=occ,
-                parent=self,
-            )
-            if dlg_t.exec() != QDialog.DialogCode.Accepted:
-                return
-            scope = str(dlg_t.cb_scope.currentData() or "this")
-            self.tx_service.update_occurrence(
-                occ,
-                scope=scope,
-                descricao=dlg_t.ed_desc.text().strip(),
-                valor=float(dlg_t.sp_valor.value()),
-                data_vencimento=_qdate_to_py(dlg_t.dt_venc.date()),
-                id_conta=str(dlg_t.cb_origem.currentData()),
-                id_conta_destino=str(dlg_t.cb_destino.currentData()),
-                obs=dlg_t.ed_obs.text().strip(),
-                efetivada=dlg_t.chk_efetivada.isChecked(),
-            )
-
-        self.on_data_mutated()
-        self.refresh_data()
+        dlg = UnifiedTransactionDialog(
+            self.db,
+            profile_id=profile_id,
+            default_date=occ.data_vencimento,
+            initial_kind=occ.kind,
+            card_mode=occ.is_card,
+            occurrence=occ,
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._save_unified_dialog_result(dlg, profile_id=profile_id, occurrence=occ)
 
     def delete_selected_occurrence(self) -> None:
         occ = self._selected_occurrence()

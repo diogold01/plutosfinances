@@ -103,6 +103,15 @@ class DateReferenceMode(str, Enum):
 
 
 
+def clamp_ui_zoom(value: float | int | None) -> float:
+    """Limita o fator de zoom da interface entre 0.60 (60%) e 1.50 (150%) com 2 casas decimais."""
+    try:
+        z = float(value if value is not None else 1.0)
+    except (TypeError, ValueError):
+        z = 1.0
+    return round(min(1.5, max(0.6, z)), 2)
+
+
 @dataclass
 class AppSettings:
     """Configurações persistidas localmente em arquivo JSON com flush atômico em disco."""
@@ -121,9 +130,14 @@ class AppSettings:
     window_width: int = 1366
     window_height: int = 840
     sidebar_collapsed: bool = False
+    ui_zoom_factor: float = 1.0
+    ui_zoom_auto: bool = False
     show_technical_details: bool = True
     gemini_model: str = "gemini-3.5-flash-lite"
     cdi_taxa_anual: float = 10.75  # Taxa CDI anual padrão (%) para cálculo de rendimento de Caixinhas CDB
+    user_display_name: str = ""
+    user_email: str = ""
+    user_phone: str = ""
     _settings_path: Path = field(
         default_factory=lambda: DEFAULT_SETTINGS_FILE, repr=False, compare=False
     )
@@ -149,10 +163,12 @@ class AppSettings:
             }
             filtered = {k: v for k, v in raw.items() if k in valid_keys}
             instance = cls(**filtered, _settings_path=target_path)
-            # Garante políticas de retenção e intervalo padrão de backup
+            # Garante políticas de retenção, zoom e intervalo padrão de backup
             instance.backup_retention_count = BACKUP_RETENTION_MAX_FILES
             if instance.backup_interval_seconds <= 0:
                 instance.backup_interval_seconds = BACKUP_INTERVAL_3_HOURS_SECONDS
+            instance.ui_zoom_factor = clamp_ui_zoom(instance.ui_zoom_factor)
+            instance.ui_zoom_auto = bool(instance.ui_zoom_auto)
             return instance
         except Exception:
             instance = cls(_settings_path=target_path)

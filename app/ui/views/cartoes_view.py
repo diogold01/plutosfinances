@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -67,8 +68,8 @@ from app.ui.bank_icons import (
     get_card_brand_icon,
     get_card_institution_pixmap,
 )
-from app.ui.components import Badge, EmptyStateWidget, InstallmentMiniBar, KpiCard
-from app.ui.icons import get_line_icon
+from app.ui.components import Badge, EmptyStateWidget, FilterCountPill, InstallmentMiniBar, KpiCard, SideDrawer
+from app.ui.icons import get_line_icon, get_line_pixmap
 from app.ui.style_manager import format_currency, format_date_br
 from app.ui.views.transacoes_view import ExpenseDialog, _qdate_to_py
 
@@ -270,7 +271,13 @@ class CreditCardTile(QFrame):
 
 
 class CardFormDialog(QDialog):
-    """Modal para criar ou editar um Cartão de Crédito."""
+    """Modal estilo Arthas em 2 colunas para criar ou editar um Cartão de Crédito."""
+
+    ARTHAS_CARD_COLORS = [
+        "#8B5CF6", "#6366F1", "#3B82F6", "#0EA5E9", "#14B8A6",
+        "#10B981", "#22C55E", "#EAB308", "#F97316", "#EF4444",
+        "#EC4899", "#A855F7", "#1E293B", "#475569", "#78716C",
+    ]
 
     def __init__(
         self,
@@ -284,87 +291,205 @@ class CardFormDialog(QDialog):
         self.profile_id = profile_id
         self.card = card
         self.account_repo = AccountRepository(db)
+        self._selected_color: str = self.ARTHAS_CARD_COLORS[0]
+        self.swatch_buttons: List[QPushButton] = []
 
         self.setWindowTitle(
-            "Editar Cartão de Crédito" if card else "Novo Cartão de Crédito"
+            "Editar Cartão" if card else "Novo Cartão de Crédito"
         )
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(500)
         self._accounts = self.account_repo.list_accounts(profile_id)
         self._build_ui()
         if card is not None:
             self._populate(card)
+        else:
+            self._select_swatch(self.ARTHAS_CARD_COLORS[0])
+
+    @staticmethod
+    def _field_block(label_text: str, widget: QWidget) -> QVBoxLayout:
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(6)
+        lbl = QLabel(label_text)
+        lbl.setObjectName("FormLabel")
+        lbl.setStyleSheet("font-size: 12px; font-weight: 600;")
+        col.addWidget(lbl)
+        col.addWidget(widget)
+        return col
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(16)
 
-        form = QFormLayout()
-        form.setSpacing(12)
+        # Cabeçalho estilo Arthas: [ícone cartão] Novo Cartão de Crédito | botão X
+        hdr = QHBoxLayout()
+        hdr.setSpacing(10)
+        lbl_ico = QLabel()
+        lbl_ico.setFixedSize(22, 22)
+        lbl_ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_ico.setPixmap(get_line_pixmap("card", color="#0F172A", size=18))
+        lbl_t = QLabel("Editar Cartão" if self.card else "Novo Cartão de Crédito")
+        lbl_t.setObjectName("SectionTitle")
+        lbl_t.setStyleSheet("font-size: 18px; font-weight: 700;")
+        btn_x = QPushButton()
+        btn_x.setObjectName("IconButton")
+        btn_x.setFixedSize(28, 28)
+        btn_x.setIcon(get_line_icon("x", size=15))
+        btn_x.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_x.clicked.connect(self.reject)
+        hdr.addWidget(lbl_ico)
+        hdr.addWidget(lbl_t, 1)
+        hdr.addWidget(btn_x)
+        layout.addLayout(hdr)
 
+        # Linha 1 (2 colunas): Nome do Cartão * | Conta / Grupo
+        r1 = QHBoxLayout()
+        r1.setSpacing(14)
         self.ed_nome = QLineEdit()
-        self.ed_nome.setPlaceholderText("Ex.: Nubank Ultravioleta, Itaú Click, Inter...")
-        form.addRow("Nome do Cartão*:", self.ed_nome)
-
-        self.cb_brand = QComboBox()
-        for b_key, b_label, fname in CARD_BRANDS:
-            self.cb_brand.addItem(get_card_brand_icon(fname, size=22), b_label, b_key)
-        form.addRow("Bandeira:", self.cb_brand)
-
-        self.sp_limite = QDoubleSpinBox()
-        self.sp_limite.setRange(0.0, 999_999_999.99)
-        self.sp_limite.setDecimals(2)
-        self.sp_limite.setPrefix("R$ ")
-        self.sp_limite.setValue(5000.00)
-        form.addRow("Limite de Crédito (R$)*:", self.sp_limite)
-
-        days_row = QHBoxLayout()
-        self.sp_fecha = QSpinBox()
-        self.sp_fecha.setRange(1, 31)
-        self.sp_fecha.setValue(3)
-        self.sp_venc = QSpinBox()
-        self.sp_venc.setRange(1, 31)
-        self.sp_venc.setValue(10)
-        days_row.addWidget(QLabel("Fecha dia:"))
-        days_row.addWidget(self.sp_fecha)
-        days_row.addSpacing(12)
-        days_row.addWidget(QLabel("Vence dia:"))
-        days_row.addWidget(self.sp_venc)
-        form.addRow("Ciclo da Fatura:", days_row)
+        self.ed_nome.setPlaceholderText("Ex: Nubank, Itaú Platinum")
+        self.ed_nome.setFixedHeight(38)
 
         self.cb_conta = QComboBox()
+        self.cb_conta.setFixedHeight(38)
         self.cb_conta.addItem("Sem conta vinculada", None)
         for acc in self._accounts:
             self.cb_conta.addItem(acc.name, acc.id)
-        form.addRow("Conta p/ Débito da Fatura:", self.cb_conta)
 
+        r1.addLayout(self._field_block("Nome do Cartão *", self.ed_nome), 1)
+        r1.addLayout(self._field_block("Conta vinculada", self.cb_conta), 1)
+        layout.addLayout(r1)
+
+        # Linha 2 (2 colunas): Bandeira | Últimos 4 dígitos
+        r2 = QHBoxLayout()
+        r2.setSpacing(14)
+        self.cb_brand = QComboBox()
+        self.cb_brand.setFixedHeight(38)
+        for b_key, b_label, fname in CARD_BRANDS:
+            self.cb_brand.addItem(get_card_brand_icon(fname, size=20), b_label, b_key)
+
+        self.ed_last4 = QLineEdit()
+        self.ed_last4.setPlaceholderText("1234")
+        self.ed_last4.setMaxLength(4)
+        self.ed_last4.setFixedHeight(38)
+
+        r2.addLayout(self._field_block("Bandeira", self.cb_brand), 1)
+        r2.addLayout(self._field_block("Últimos 4 dígitos", self.ed_last4), 1)
+        layout.addLayout(r2)
+
+        # Linha 3 (Largura total): Limite
+        self.sp_limite = QDoubleSpinBox()
+        self.sp_limite.setRange(0.0, 999_999_999.99)
+        self.sp_limite.setDecimals(2)
+        self.sp_limite.setPrefix("R$  ")
+        self.sp_limite.setValue(5000.00)
+        self.sp_limite.setFixedHeight(38)
+        layout.addLayout(self._field_block("Limite", self.sp_limite))
+
+        # Linha 4 (2 colunas): Dia de Fechamento * | Dia de Vencimento *
+        r4 = QHBoxLayout()
+        r4.setSpacing(14)
+        self.sp_fecha = QSpinBox()
+        self.sp_fecha.setRange(1, 31)
+        self.sp_fecha.setValue(15)
+        self.sp_fecha.setFixedHeight(38)
+
+        self.sp_venc = QSpinBox()
+        self.sp_venc.setRange(1, 31)
+        self.sp_venc.setValue(25)
+        self.sp_venc.setFixedHeight(38)
+
+        r4.addLayout(self._field_block("Dia de Fechamento *", self.sp_fecha), 1)
+        r4.addLayout(self._field_block("Dia de Vencimento *", self.sp_venc), 1)
+        layout.addLayout(r4)
+
+        # Linha 5: Seletor circular de Cor estilo Arthas (sincronizado com cb_cor oculto)
         self.cb_cor = QComboBox()
-        for hex_code in CATEGORY_SWATCHES:
-            self.cb_cor.addItem(
-                create_color_badge_icon(hex_code, "", size=18), hex_code, hex_code
-            )
-        form.addRow("Cor do Cartão:", self.cb_cor)
+        self.cb_cor.setVisible(False)
+        all_swatches = list(dict.fromkeys(self.ARTHAS_CARD_COLORS + list(CATEGORY_SWATCHES)))
+        for hex_code in all_swatches:
+            self.cb_cor.addItem(hex_code, hex_code)
+
+        cor_col = QVBoxLayout()
+        cor_col.setContentsMargins(0, 0, 0, 0)
+        cor_col.setSpacing(8)
+        lbl_cor = QLabel("Cor")
+        lbl_cor.setObjectName("FormLabel")
+        lbl_cor.setStyleSheet("font-size: 12px; font-weight: 600;")
+        cor_col.addWidget(lbl_cor)
+
+        sw_grid = QGridLayout()
+        sw_grid.setHorizontalSpacing(8)
+        sw_grid.setVerticalSpacing(8)
+        for idx, hex_c in enumerate(self.ARTHAS_CARD_COLORS):
+            btn_sw = QPushButton()
+            btn_sw.setObjectName("ColorSwatchCircle")
+            btn_sw.setFixedSize(28, 28)
+            btn_sw.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_sw.setProperty("swatch_hex", hex_c)
+            btn_sw.clicked.connect(lambda _=False, hc=hex_c: self._select_swatch(hc))
+            sw_grid.addWidget(btn_sw, idx // 11, idx % 11)
+            self.swatch_buttons.append(btn_sw)
+        sw_wrap = QHBoxLayout()
+        sw_wrap.addLayout(sw_grid)
+        sw_wrap.addStretch()
+        cor_col.addLayout(sw_wrap)
+        layout.addLayout(cor_col)
 
         self.chk_padrao = QCheckBox("Definir como cartão padrão")
-        form.addRow("", self.chk_padrao)
+        layout.addWidget(self.chk_padrao)
 
-        layout.addLayout(form)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save
-            | QDialogButtonBox.StandardButton.Cancel
-        )
-        btn_save = buttons.button(QDialogButtonBox.StandardButton.Save)
-        btn_save.setText("Salvar Cartão")
-        btn_save.setObjectName("PrimaryButton")
-        btn_cancel = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        btn_cancel.setText("Cancelar")
+        # Rodapé estilo Arthas: Cancelar | Criar Cartão
+        footer = QHBoxLayout()
+        footer.setSpacing(10)
+        footer.addStretch()
+        btn_cancel = QPushButton("Cancelar")
         btn_cancel.setObjectName("SecondaryButton")
-        buttons.accepted.connect(self._validate_and_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        btn_cancel.setFixedHeight(38)
+        btn_cancel.setMinimumWidth(96)
+        btn_cancel.clicked.connect(self.reject)
+
+        self.btn_save_card = QPushButton("Salvar" if self.card else "Criar Cartão")
+        self.btn_save_card.setObjectName("PrimaryButton")
+        self.btn_save_card.setFixedHeight(38)
+        self.btn_save_card.setMinimumWidth(124)
+        self.btn_save_card.setDefault(True)
+        self.btn_save_card.clicked.connect(self._validate_and_accept)
+
+        footer.addWidget(btn_cancel)
+        footer.addWidget(self.btn_save_card)
+        layout.addLayout(footer)
+
+    def _select_swatch(self, hex_code: str) -> None:
+        self._selected_color = hex_code
+        idx_c = self.cb_cor.findData(hex_code)
+        if idx_c < 0:
+            self.cb_cor.addItem(hex_code, hex_code)
+            idx_c = self.cb_cor.count() - 1
+        self.cb_cor.setCurrentIndex(idx_c)
+        for btn in self.swatch_buttons:
+            hc = str(btn.property("swatch_hex") or "")
+            is_sel = hc.lower() == hex_code.lower()
+            border_rule = "2px solid #0F172A" if is_sel else "2px solid transparent"
+            btn.setStyleSheet(
+                f"QPushButton#ColorSwatchCircle {{ background-color: {hc}; border: {border_rule}; border-radius: 14px; padding: 0px; }}"
+            )
+
+    def resolved_card_name(self) -> str:
+        base = self.ed_nome.text().strip()
+        last4 = re.sub(r"\D", "", self.ed_last4.text().strip())
+        if len(last4) == 4 and last4 not in base:
+            return f"{base} {last4}"
+        return base
 
     def _populate(self, card: CardDTO) -> None:
-        self.ed_nome.setText(card.nome)
+        raw_name = (card.nome or "").strip()
+        m = re.search(r"\s+(\d{4})$", raw_name)
+        if m:
+            self.ed_nome.setText(raw_name[: m.start()].strip())
+            self.ed_last4.setText(m.group(1))
+        else:
+            self.ed_nome.setText(raw_name)
         idx_b = self.cb_brand.findData(card.brand_key)
         if idx_b >= 0:
             self.cb_brand.setCurrentIndex(idx_b)
@@ -375,9 +500,7 @@ class CardFormDialog(QDialog):
             idx_c = self.cb_conta.findData(card.id_conta)
             if idx_c >= 0:
                 self.cb_conta.setCurrentIndex(idx_c)
-        idx_col = self.cb_cor.findData(card.color_hex)
-        if idx_col >= 0:
-            self.cb_cor.setCurrentIndex(idx_col)
+        self._select_swatch(card.color_hex or self.ARTHAS_CARD_COLORS[0])
         self.chk_padrao.setChecked(card.padrao == "S")
 
     def _validate_and_accept(self) -> None:
@@ -826,6 +949,7 @@ class CartoesView(QWidget):
         self._last_context_period: Optional[Tuple[int, int]] = None
         self.card_tiles: List[CreditCardTile] = []
         self._expanded_occ_id: Optional[str] = None
+        self._inv_type_filter: str = "ALL"
         self._filtered_items: List[Occurrence] = []
         self._build_ui()
 
@@ -834,23 +958,37 @@ class CartoesView(QWidget):
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(16)
 
-        # 1. Cabeçalho
+        # 1. Cabeçalho estilo Arthas: Título à esquerda | [Limites e cadastro] [Novo cartão] à direita
         header_row = QHBoxLayout()
+        header_row.setSpacing(10)
         title_col = QVBoxLayout()
-        lbl_t = QLabel("Cartões de crédito")
+        title_col.setSpacing(2)
+        lbl_t = QLabel("Cartões e faturas")
         lbl_t.setObjectName("SectionTitle")
-        lbl_s = QLabel("Selecione um cartão para ver e gerenciar a fatura")
-        lbl_s.setObjectName("MutedText")
+        self.lbl_cards_subtitle = QLabel("Faturas fechadas e projeções abertas para os próximos meses em um só lugar")
+        self.lbl_cards_subtitle.setObjectName("MutedText")
         title_col.addWidget(lbl_t)
-        title_col.addWidget(lbl_s)
+        title_col.addWidget(self.lbl_cards_subtitle)
         header_row.addLayout(title_col)
         header_row.addStretch()
 
+        self.btn_limits_toggle = QPushButton("Limites e cadastro")
+        self.btn_limits_toggle.setObjectName("SecondaryButton")
+        self.btn_limits_toggle.setIcon(get_line_icon("card", size=15))
+        self.btn_limits_toggle.setFixedHeight(36)
+        self.btn_limits_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_limits_toggle.clicked.connect(
+            lambda: self.limits_summary_card.setVisible(not self.limits_summary_card.isVisible())
+        )
+        header_row.addWidget(self.btn_limits_toggle, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self.btn_new_card = QPushButton("Novo cartão")
-        self.btn_new_card.setObjectName("SecondaryButton")
-        self.btn_new_card.setIcon(get_line_icon("plus", size=16))
+        self.btn_new_card.setObjectName("PrimaryButton")
+        self.btn_new_card.setIcon(get_line_icon("plus", color="#FFFFFF", size=15))
+        self.btn_new_card.setFixedHeight(36)
+        self.btn_new_card.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_new_card.clicked.connect(self.open_new_card_dialog)
-        header_row.addWidget(self.btn_new_card)
+        header_row.addWidget(self.btn_new_card, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addLayout(header_row)
 
         # 2. KPI Cards Consolidados (com micro-ícones e tint semântico)
@@ -885,7 +1023,7 @@ class CartoesView(QWidget):
         content_page = QWidget()
         c_lay = QVBoxLayout(content_page)
         c_lay.setContentsMargins(0, 0, 0, 0)
-        c_lay.setSpacing(16)
+        c_lay.setSpacing(14)
 
         # 3A. Galeria Horizontal de Cards Interativos de Cartão
         self.cards_scroll = QScrollArea()
@@ -897,13 +1035,31 @@ class CartoesView(QWidget):
         self.cards_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         self.cards_container = QWidget()
-        self.cards_container.setStyleSheet("background: transparent;")
+        self.cards_container.setObjectName("CardsGalleryHost")
+        self.cards_container.setStyleSheet("QWidget#CardsGalleryHost { background: transparent; }")
         self.cards_row_layout = QHBoxLayout(self.cards_container)
         self.cards_row_layout.setContentsMargins(0, 2, 0, 6)
         self.cards_row_layout.setSpacing(14)
         self.cards_row_layout.addStretch()
         self.cards_scroll.setWidget(self.cards_container)
         c_lay.addWidget(self.cards_scroll)
+
+        # 3A-ter. Banner sutil "Melhor dia de compra" estilo Arthas
+        self.best_day_banner = QFrame()
+        self.best_day_banner.setObjectName("BestDayBanner")
+        bd_lay = QHBoxLayout(self.best_day_banner)
+        bd_lay.setContentsMargins(16, 10, 16, 10)
+        bd_lay.setSpacing(10)
+        lbl_bd_ico = QLabel()
+        lbl_bd_ico.setFixedSize(18, 18)
+        lbl_bd_ico.setPixmap(get_line_pixmap("zap", color=INCOME_GREEN, size=15))
+        self.lbl_best_day_text = QLabel("Melhor dia de compra: selecione um cartão")
+        self.lbl_best_day_text.setStyleSheet(
+            f"font-size: 12px; font-weight: 500; color: {INCOME_GREEN}; background: transparent; border: none;"
+        )
+        bd_lay.addWidget(lbl_bd_ico)
+        bd_lay.addWidget(self.lbl_best_day_text, 1)
+        c_lay.addWidget(self.best_day_banner)
 
         # 3A-bis. Barra Resumo de Limites Consolidados (estilo Artha Limites e cadastro)
         self.limits_summary_card = QFrame()
@@ -945,119 +1101,93 @@ class CartoesView(QWidget):
         ls_lay.addWidget(self.lbl_limit_pct)
         c_lay.addWidget(self.limits_summary_card)
 
-        # 3B. Card de Detalhe da Fatura Selecionada
+        # 3B. Card de Detalhe da Fatura Selecionada (alinhado em linha única, sem botões empilhados)
         self.invoice_card = QFrame()
         self.invoice_card.setObjectName("CardSurface")
         r_lay = QVBoxLayout(self.invoice_card)
-        r_lay.setContentsMargins(20, 18, 20, 18)
-        r_lay.setSpacing(12)
+        r_lay.setContentsMargins(22, 18, 22, 18)
+        r_lay.setSpacing(14)
 
-        # Linha 1 da Fatura: [Logo 26px] Nome do Cartão | Seletor < Mês > | Badge Status | Filtro Categoria | Novo lançamento | Pagar fatura
+        # Linha 1 da Fatura (100% em uma única linha alinhada):
+        # Esquerda: [Logo] Nome | < Seletor Mês > | Fatura aberta | Status
+        # Direita:  [Novo lançamento no cartão] | [Pagar fatura] | [Gerenciar ▾]
         inv_top = QHBoxLayout()
-        inv_top.setSpacing(10)
+        inv_top.setSpacing(8)
 
         self.lbl_invoice_logo = QLabel()
-        self.lbl_invoice_logo.setFixedSize(26, 26)
-        inv_top.addWidget(self.lbl_invoice_logo)
+        self.lbl_invoice_logo.setFixedSize(28, 28)
+        inv_top.addWidget(self.lbl_invoice_logo, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.lbl_invoice_title = QLabel("Selecione um cartão")
         self.lbl_invoice_title.setStyleSheet("font-size: 16px; font-weight: 700;")
-        inv_top.addWidget(self.lbl_invoice_title)
+        inv_top.addWidget(self.lbl_invoice_title, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        inv_top.addSpacing(8)
+        inv_top.addSpacing(6)
 
-        # Seletor de mês de fatura (< Anterior | Combo | Próxima > | Aberta)
         self.btn_prev_inv = QPushButton()
         self.btn_prev_inv.setObjectName("SecondaryButton")
-        self.btn_prev_inv.setIcon(get_line_icon("chevron-left", size=16))
-        self.btn_prev_inv.setFixedSize(32, 32)
+        self.btn_prev_inv.setIcon(get_line_icon("chevron-left", size=15))
+        self.btn_prev_inv.setFixedSize(34, 34)
         self.btn_prev_inv.setToolTip("Fatura anterior")
         self.btn_prev_inv.clicked.connect(self._on_prev_invoice)
-        inv_top.addWidget(self.btn_prev_inv)
+        inv_top.addWidget(self.btn_prev_inv, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.cb_invoice_month = QComboBox()
-        self.cb_invoice_month.setMinimumWidth(240)
+        self.cb_invoice_month.setFixedHeight(34)
+        self.cb_invoice_month.setMinimumWidth(230)
         self.cb_invoice_month.currentIndexChanged.connect(self._on_invoice_month_selected)
-        inv_top.addWidget(self.cb_invoice_month)
+        inv_top.addWidget(self.cb_invoice_month, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_next_inv = QPushButton()
         self.btn_next_inv.setObjectName("SecondaryButton")
-        self.btn_next_inv.setIcon(get_line_icon("chevron-right", size=16))
-        self.btn_next_inv.setFixedSize(32, 32)
+        self.btn_next_inv.setIcon(get_line_icon("chevron-right", size=15))
+        self.btn_next_inv.setFixedSize(34, 34)
         self.btn_next_inv.setToolTip("Próxima fatura")
         self.btn_next_inv.clicked.connect(self._on_next_invoice)
-        inv_top.addWidget(self.btn_next_inv)
+        inv_top.addWidget(self.btn_next_inv, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_open_inv = QPushButton("Fatura aberta")
         self.btn_open_inv.setObjectName("SecondaryButton")
+        self.btn_open_inv.setFixedHeight(34)
         self.btn_open_inv.setToolTip("Ir direto para a fatura aberta atual do cartão")
         self.btn_open_inv.clicked.connect(self._on_jump_open_invoice)
-        inv_top.addWidget(self.btn_open_inv)
+        inv_top.addWidget(self.btn_open_inv, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.badge_invoice_status = Badge("Aberta", variant="info")
-        inv_top.addWidget(self.badge_invoice_status)
+        inv_top.addWidget(self.badge_invoice_status, 0, Qt.AlignmentFlag.AlignVCenter)
 
         inv_top.addStretch()
 
-        # Filtro por categoria dentro da fatura
-        self.cb_filter_category = QComboBox()
-        self.cb_filter_category.setMinimumWidth(160)
-        self.cb_filter_category.addItem("Todas as categorias", "ALL")
-        self.cb_filter_category.currentIndexChanged.connect(self._on_category_filter_changed)
-        inv_top.addWidget(self.cb_filter_category)
-
-        # Botão Secundário: Novo lançamento no cartão
         self.btn_add_purchase = QPushButton("Novo lançamento no cartão")
         self.btn_add_purchase.setObjectName("SecondaryButton")
-        self.btn_add_purchase.setIcon(get_line_icon("plus", size=16))
+        self.btn_add_purchase.setIcon(get_line_icon("plus", size=15))
+        self.btn_add_purchase.setFixedHeight(34)
+        self.btn_add_purchase.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add_purchase.clicked.connect(self.open_new_purchase_for_selected_card)
-        inv_top.addWidget(self.btn_add_purchase)
+        inv_top.addWidget(self.btn_add_purchase, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # Botão Primário da Fatura: Pagar fatura
         self.btn_pay_reopen = QPushButton("Pagar fatura")
         self.btn_pay_reopen.setObjectName("PrimaryButton")
-        self.btn_pay_reopen.setIcon(get_line_icon("check", color="#FFFFFF", size=16))
+        self.btn_pay_reopen.setIcon(get_line_icon("check", color="#FFFFFF", size=15))
+        self.btn_pay_reopen.setFixedHeight(34)
+        self.btn_pay_reopen.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_pay_reopen.clicked.connect(self.pay_or_reopen_selected_invoice)
-        inv_top.addWidget(self.btn_pay_reopen)
+        inv_top.addWidget(self.btn_pay_reopen, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        r_lay.addLayout(inv_top)
-
-        # Linha 2 da Fatura: Resumo em destaque + Ações secundárias discretas da fatura/cartão
-        summary_row = QHBoxLayout()
-        summary_col = QVBoxLayout()
-        summary_col.setSpacing(2)
-
-        lbl_tot_cap = QLabel("Total da fatura")
-        lbl_tot_cap.setObjectName("MutedText")
-        lbl_tot_cap.setStyleSheet("font-size: 12px;")
-        summary_col.addWidget(lbl_tot_cap)
-
-        self.lbl_invoice_big_total = QLabel("R$ 0,00")
-        self.lbl_invoice_big_total.setStyleSheet("font-size: 24px; font-weight: 700;")
-        summary_col.addWidget(self.lbl_invoice_big_total)
-
-        self.lbl_invoice_meta = QLabel("")
-        self.lbl_invoice_meta.setObjectName("MutedText")
-        self.lbl_invoice_meta.setStyleSheet("font-size: 12px;")
-        summary_col.addWidget(self.lbl_invoice_meta)
-
-        summary_row.addLayout(summary_col)
-        summary_row.addStretch()
-
-        # Botões secundários enxutos de gestão do ciclo e do cartão
-        tools_row = QHBoxLayout()
-        tools_row.setSpacing(6)
-
-        self.btn_advance = QPushButton("Adiantar")
+        # Atributo preservado por compatibilidade; ação incorporada de forma limpa em Gerenciar ▾
+        self.btn_advance = QPushButton("Adiantar", self.invoice_card)
         self.btn_advance.setObjectName("SecondaryButton")
-        self.btn_advance.setToolTip("Registrar adiantamento de fatura")
+        self.btn_advance.setVisible(False)
         self.btn_advance.clicked.connect(self.advance_selected_invoice)
-        tools_row.addWidget(self.btn_advance)
 
         self.btn_card_actions = QPushButton("Gerenciar ▾")
         self.btn_card_actions.setObjectName("SecondaryButton")
-        self.btn_card_actions.setToolTip("Ajustar fatura, realinhar ciclo, editar ou excluir cartão")
+        self.btn_card_actions.setFixedHeight(34)
+        self.btn_card_actions.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_card_actions.setToolTip("Adiantar fatura, ajustar ciclo, editar ou excluir cartão")
         card_menu = QMenu(self.btn_card_actions)
+        act_adv = card_menu.addAction(get_line_icon("zap", size=15), "Adiantar fatura")
+        act_adv.triggered.connect(self.advance_selected_invoice)
         act_adj = card_menu.addAction(get_line_icon("calendar", size=15), "Ajustar fatura")
         act_adj.triggered.connect(self.edit_selected_invoice_month)
         act_realign = card_menu.addAction(get_line_icon("refresh", size=15), "Realinhar ciclo")
@@ -1068,11 +1198,68 @@ class CartoesView(QWidget):
         act_del_c = card_menu.addAction(get_line_icon("trash", size=15), "Excluir cartão")
         act_del_c.triggered.connect(self.delete_selected_card)
         self.btn_card_actions.setMenu(card_menu)
-        tools_row.addWidget(self.btn_card_actions)
+        inv_top.addWidget(self.btn_card_actions, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        summary_row.addLayout(tools_row)
+        r_lay.addLayout(inv_top)
 
+        # Linha 2 da Fatura: Resumo em destaque limpo (sem segunda fileira de botões)
+        summary_row = QHBoxLayout()
+        summary_col = QVBoxLayout()
+        summary_col.setSpacing(2)
+
+        lbl_tot_cap = QLabel("Total da fatura")
+        lbl_tot_cap.setObjectName("MutedText")
+        lbl_tot_cap.setStyleSheet("font-size: 12px;")
+        summary_col.addWidget(lbl_tot_cap)
+
+        self.lbl_invoice_big_total = QLabel("R$ 0,00")
+        self.lbl_invoice_big_total.setStyleSheet("font-size: 26px; font-weight: 700;")
+        summary_col.addWidget(self.lbl_invoice_big_total)
+
+        self.lbl_invoice_meta = QLabel("")
+        self.lbl_invoice_meta.setObjectName("MutedText")
+        self.lbl_invoice_meta.setStyleSheet("font-size: 12px;")
+        summary_col.addWidget(self.lbl_invoice_meta)
+
+        summary_row.addLayout(summary_col)
+        summary_row.addStretch()
         r_lay.addLayout(summary_row)
+
+        sep_inv = QFrame()
+        sep_inv.setObjectName("ModalSeparator")
+        sep_inv.setFixedHeight(1)
+        r_lay.addWidget(sep_inv)
+
+        # Barra da seção "Lançamentos" estilo Arthas: Título à esquerda | [Todos] [Parcelados] [Todas as categorias] à direita
+        items_bar = QHBoxLayout()
+        items_bar.setSpacing(8)
+        lbl_it_sec = QLabel("Lançamentos")
+        lbl_it_sec.setStyleSheet("font-size: 14px; font-weight: 700;")
+        self.lbl_inv_items_count = QLabel("0")
+        self.lbl_inv_items_count.setObjectName("MutedText")
+        self.lbl_inv_items_count.setStyleSheet("font-size: 12px; font-weight: 600;")
+        items_bar.addWidget(lbl_it_sec, 0, Qt.AlignmentFlag.AlignVCenter)
+        items_bar.addWidget(self.lbl_inv_items_count, 0, Qt.AlignmentFlag.AlignVCenter)
+        items_bar.addStretch()
+
+        self.pill_inv_all = FilterCountPill("Todos 0")
+        self.pill_inv_all.setProperty("active", True)
+        self.pill_inv_all.clicked.connect(lambda: self._set_inv_type_filter("ALL"))
+        items_bar.addWidget(self.pill_inv_all, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.pill_inv_parc = FilterCountPill("Parcelados 0", dot_color="#7F77DD")
+        self.pill_inv_parc.setProperty("active", False)
+        self.pill_inv_parc.clicked.connect(lambda: self._set_inv_type_filter("PARC"))
+        items_bar.addWidget(self.pill_inv_parc, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.cb_filter_category = QComboBox()
+        self.cb_filter_category.setFixedHeight(32)
+        self.cb_filter_category.setMinimumWidth(175)
+        self.cb_filter_category.addItem("Todas as categorias", "ALL")
+        self.cb_filter_category.currentIndexChanged.connect(self._on_category_filter_changed)
+        items_bar.addWidget(self.cb_filter_category, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        r_lay.addLayout(items_bar)
 
         # Tabela de Lançamentos da Fatura (sem grades verticais, com expansão de parcelas ao clicar)
         self.tbl_items = QTableWidget(0, 6)
@@ -1177,6 +1364,26 @@ class CartoesView(QWidget):
         self.main_stack.addWidget(self.empty_cards_widget)
 
         root.addWidget(self.main_stack, stretch=1)
+
+        self.installment_drawer = SideDrawer(
+            title="Detalhe da Série Parcelada",
+            subtitle="",
+            width=440,
+            overlay=True,
+            parent=self,
+        )
+
+    def open_installment_drawer(self, occ: Occurrence) -> None:
+        series = self.tx_service.list_installment_series(occ)
+        if not series:
+            return
+        self.installment_drawer.populate_installment_series(
+            occ=occ,
+            series=series,
+            theme_mode=self.db.settings.theme_mode,
+            on_open_bill=None,
+        )
+        self.installment_drawer.open_drawer()
 
     def _make_kpi_card(
         self,
@@ -1342,6 +1549,10 @@ class CartoesView(QWidget):
             self.lbl_invoice_title.setText("Nenhum cartão selecionado")
             self.lbl_invoice_big_total.setText("R$ 0,00")
             self.lbl_invoice_meta.setText("")
+            self.lbl_best_day_text.setText("Selecione um cartão para visualizar o melhor dia de compra.")
+            self.lbl_inv_items_count.setText("0")
+            self.pill_inv_all.setText("Todos 0")
+            self.pill_inv_parc.setText("Parcelados 0")
             self.btn_prev_inv.setEnabled(False)
             self.btn_next_inv.setEnabled(False)
             self.btn_open_inv.setEnabled(False)
@@ -1392,13 +1603,18 @@ class CartoesView(QWidget):
         self.badge_invoice_status.setText("Fatura paga" if inv.paga else st)
         self.badge_invoice_status.set_variant(variant)
 
-        # Resumo numérico da fatura
+        # Resumo numérico da fatura + Banner Melhor dia de compra estilo Arthas
         self.lbl_invoice_big_total.setText(format_currency(inv.total))
         pct = int(round((inv.total / inv.limite) * 100)) if inv.limite > 0 else 0
         self.lbl_invoice_meta.setText(
             f"{pct}% do limite · Fecha dia {format_date_br(inv.data_fechamento.isoformat())} · "
             f"Vence dia {format_date_br(inv.data_vencimento.isoformat())} · "
             f"Disponível: {format_currency(inv.disponivel)}"
+        )
+        best_day = 1 if inv.card.dia_fecha >= 31 else inv.card.dia_fecha + 1
+        self.lbl_best_day_text.setText(
+            f"Melhor dia de compra no {inv.card.nome}: a partir do dia {best_day:02d}, "
+            f"as compras entram na próxima fatura (vencimento dia {inv.card.dia_venc:02d})."
         )
 
         # Botão Pagar fatura (Primário quando em aberto, Secundário quando já paga)
@@ -1439,6 +1655,15 @@ class CartoesView(QWidget):
         self._expanded_occ_id = None
         self._render_invoice_items()
 
+    def _set_inv_type_filter(self, ftype: str) -> None:
+        self._inv_type_filter = ftype
+        self._expanded_occ_id = None
+        self.pill_inv_all.setProperty("active", ftype == "ALL")
+        self.pill_inv_parc.setProperty("active", ftype == "PARC")
+        self.pill_inv_all.update()
+        self.pill_inv_parc.update()
+        self._render_invoice_items()
+
     @staticmethod
     def _format_installment_expansion_text(occ: Occurrence) -> str:
         """Gera o texto explicativo das parcelas restantes ao expandir uma linha da fatura."""
@@ -1466,13 +1691,25 @@ class CartoesView(QWidget):
             self._on_item_selection_changed()
             return
 
+        all_cnt = len(inv.items)
+        parc_cnt = sum(1 for o in inv.items if o.is_installment)
+        self.pill_inv_all.setText(f"Todos {all_cnt}")
+        self.pill_inv_parc.setText(f"Parcelados {parc_cnt}")
+
         cat_filter = str(self.cb_filter_category.currentData() or "ALL")
         if cat_filter == "ALL":
-            self._filtered_items = list(inv.items)
+            items_pool = list(inv.items)
         else:
-            self._filtered_items = [
+            items_pool = [
                 o for o in inv.items if (o.categoria_nome or "Sem categoria") == cat_filter
             ]
+
+        if self._inv_type_filter == "PARC":
+            self._filtered_items = [o for o in items_pool if o.is_installment]
+        else:
+            self._filtered_items = items_pool
+
+        self.lbl_inv_items_count.setText(str(len(self._filtered_items)))
 
         f_bold = QFont()
         f_bold.setBold(True)
@@ -1510,7 +1747,7 @@ class CartoesView(QWidget):
                     occ.num_parcelas,
                     accent_hex=PRIMARY_BLUE,
                 )
-                mini.clicked.connect(lambda oid=occ.id: self._toggle_expand_occ_id(oid))
+                mini.clicked.connect(lambda o=occ: self.open_installment_drawer(o))
                 m_wrap = QWidget()
                 m_lay = QHBoxLayout(m_wrap)
                 m_lay.setContentsMargins(2, 0, 2, 0)
@@ -1754,7 +1991,7 @@ class CartoesView(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self.card_service.create_card(
-            nome=dlg.ed_nome.text().strip(),
+            nome=dlg.resolved_card_name(),
             limite=float(dlg.sp_limite.value()),
             dia_fecha=int(dlg.sp_fecha.value()),
             dia_venc=int(dlg.sp_venc.value()),
@@ -1780,7 +2017,7 @@ class CartoesView(QWidget):
             return
         self.card_service.update_card(
             card.id,
-            nome=dlg.ed_nome.text().strip(),
+            nome=dlg.resolved_card_name(),
             limite=float(dlg.sp_limite.value()),
             dia_fecha=int(dlg.sp_fecha.value()),
             dia_venc=int(dlg.sp_venc.value()),
